@@ -13,16 +13,16 @@ jobs:
         include:
           - service: backend
             context: ./Backend
-            image: codongo/interlink_backend
+            image: codongo/surfzone_backend
           - service: dashboard
             context: ./Frontend/Dashboard
-            image: codongo/interlink_dashboard
+            image: codongo/surfzone_dashboard
           - service: landingpage
             context: ./Frontend/Landingpage
-            image: codongo/interlink_landingpage
+            image: codongo/surfzone_landingpage
           - service: nginx
             context: ./nginx
-            image: codongo/interlink_nginx
+            image: codongo/surfzone_nginx
 
     steps:
       - name: Checkout code

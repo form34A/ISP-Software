@@ -1,7 +1,7 @@
 # test_auth_config.py
 import os
 import django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'interlink_logic.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'surfzone_logic.settings')
 django.setup()
 
 from django.conf import settings

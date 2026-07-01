@@ -619,7 +619,7 @@ const AdminProfile = () => {
           theme === "dark" ? "bg-gray-900 text-white" : "bg-white text-gray-800"
         }`}
       >
-        <p className="text-red-500">Please log in to access Interlink Control Center.</p>
+        <p className="text-red-500">Please log in to access SurfZone Networks Control Center.</p>
       </div>
     );
   }

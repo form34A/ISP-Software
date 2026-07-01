@@ -8,7 +8,7 @@
 #     ports:
 #       - "3306:3306"
 #     networks:
-#       - interlink_network
+#       - surfzone_network
 #     restart: unless-stopped
 
 #   # Redis
@@ -17,7 +17,7 @@
 #     ports:
 #       - "6379:6379"
 #     networks:
-#       - interlink_network
+#       - surfzone_network
 
 #   # Backend - Development Configuration
 #   backend:
@@ -25,7 +25,7 @@
 #       context: ./Backend
 #       dockerfile: Dockerfile.dev
 #     environment:
-#       - DJANGO_SETTINGS_MODULE=interlink.settings
+#       - DJANGO_SETTINGS_MODULE=surfzone_logic.settings
 #       - DATABASE_URL=mysql://${DB_USER}:${DB_PASSWORD}@db:3306/${DB_NAME}
 #       - REDIS_URL=redis://redis:6379/0
 #       - DEBUG=1
@@ -39,7 +39,7 @@
 #       - db
 #       - redis
 #     networks:
-#       - interlink_network
+#       - surfzone_network
 #     command: >
 #       sh -c "python manage.py migrate &&
 #              python manage.py runserver 0.0.0.0:8000"
@@ -57,7 +57,7 @@
 #     ports:
 #       - "5173:5173"
 #     networks:
-#       - interlink_network
+#       - surfzone_network
 
 #   # Landing Page Frontend - Production (built separately)
 #   landingpage:
@@ -65,7 +65,7 @@
 #       context: ./Frontend/Landingpage
 #       dockerfile: Dockerfile
 #     networks:
-#       - interlink_network
+#       - surfzone_network
 
 #   # Nginx
 #   nginx:
@@ -81,7 +81,7 @@
 #       - dashboard
 #       - landingpage
 #     networks:
-#       - interlink_network
+#       - surfzone_network
 
 # volumes:
 #   db_data:
@@ -89,7 +89,7 @@
 #   media_volume:
 
 # networks:
-#   interlink_network:
+#   surfzone_network:
 #     driver: bridge
 
 
@@ -101,7 +101,7 @@
 # services:
 #   db:
 #     image: mysql:5.7
-#     container_name: interlink_db
+#     container_name: surfzone_db
 #     volumes:
 #       - mysql_data:/var/lib/mysql
 #     environment:
@@ -113,7 +113,7 @@
 #     ports:
 #       - "3306:3306"
 #     networks:
-#       - interlink_network
+#       - surfzone_network
 #     restart: unless-stopped
 #     healthcheck:
 #       test: ["CMD-SHELL", "mysqladmin ping -uroot -p$${MYSQL_ROOT_PASSWORD}"]
@@ -130,11 +130,11 @@
 
 #   redis:
 #     image: redis:alpine
-#     container_name: interlink_redis
+#     container_name: surfzone_redis
 #     ports:
 #       - "6379:6379"
 #     networks:
-#       - interlink_network
+#       - surfzone_network
 #     restart: unless-stopped
 #     mem_limit: 128m
 #     cpus: 0.2
@@ -144,9 +144,9 @@
 #     build:
 #       context: ./Backend
 #       dockerfile: Dockerfile.dev
-#     container_name: interlink_backend
+#     container_name: surfzone_backend
 #     environment:
-#       - DJANGO_SETTINGS_MODULE=interlink.settings
+#       - DJANGO_SETTINGS_MODULE=surfzone_logic.settings
 #       - DATABASE_URL=mysql://${DB_USER}:${DB_PASSWORD}@db:3306/${DB_NAME}
 #       - REDIS_URL=redis://redis:6379/0
 #       - DEBUG=1
@@ -160,7 +160,7 @@
 #       db:
 #         condition: service_healthy
 #     networks:
-#       - interlink_network
+#       - surfzone_network
 #     restart: unless-stopped
 #     mem_limit: 768m
 #     cpus: 0.6
@@ -172,7 +172,7 @@
 #     build:
 #       context: ./Frontend/Dashboard
 #       dockerfile: Dockerfile.dev
-#     container_name: interlink_dashboard
+#     container_name: surfzone_dashboard
 #     environment:
 #       - NODE_ENV=development
 #     volumes:
@@ -181,7 +181,7 @@
 #     ports:
 #       - "5173:5173"
 #     networks:
-#       - interlink_network
+#       - surfzone_network
 #     restart: unless-stopped
 #     mem_limit: 384m
 #     cpus: 0.4
@@ -190,16 +190,16 @@
 #     build:
 #       context: ./Frontend/Landingpage
 #       dockerfile: Dockerfile
-#     container_name: interlink_landing
+#     container_name: surfzone_landing
 #     networks:
-#       - interlink_network
+#       - surfzone_network
 #     restart: unless-stopped
 #     mem_limit: 256m
 #     cpus: 0.3
 
 #   nginx:
 #     build: ./nginx
-#     container_name: interlink_nginx
+#     container_name: surfzone_nginx
 #     ports:
 #       - "80:80"
 #     volumes:
@@ -209,7 +209,7 @@
 #     depends_on:
 #       - backend
 #     networks:
-#       - interlink_network
+#       - surfzone_network
 #     restart: unless-stopped
 #     mem_limit: 256m
 #     cpus: 0.3
@@ -220,7 +220,7 @@
 #   media_volume:
 
 # networks:
-#   interlink_network:
+#   surfzone_network:
 #     driver: bridge
 
 
@@ -232,7 +232,7 @@
 services:
   db:
     image: mysql:5.7
-    container_name: interlink_db
+    container_name: surfzone_db
     volumes:
       - mysql_data:/var/lib/mysql
     environment:
@@ -244,7 +244,7 @@ services:
     ports:
       - "3306:3306"
     networks:
-      - interlink_network
+      - surfzone_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -uroot -p$${MYSQL_ROOT_PASSWORD}"]
@@ -261,21 +261,21 @@ services:
 
   redis:
     image: redis:alpine
-    container_name: interlink_redis
+    container_name: surfzone_redis
     ports:
       - "6379:6379"
     networks:
-      - interlink_network
+      - surfzone_network
     restart: unless-stopped
     mem_limit: 128m
     cpus: 0.2
     command: redis-server --save 60 1 --loglevel warning
 
   backend:
-    image: codongo/interlink_backend:latest
-    container_name: interlink_backend
+    image: codongo/surfzone_backend:latest
+    container_name: surfzone_backend
     environment:
-      - DJANGO_SETTINGS_MODULE=interlink.settings
+      - DJANGO_SETTINGS_MODULE=surfzone_logic.settings
       - DATABASE_URL=mysql://${DB_USER}:${DB_PASSWORD}@db:3306/${DB_NAME}
       - REDIS_URL=redis://redis:6379/0
       - DEBUG=1
@@ -289,7 +289,7 @@ services:
       db:
         condition: service_healthy
     networks:
-      - interlink_network
+      - surfzone_network
     restart: unless-stopped
     mem_limit: 768m
     cpus: 0.6
@@ -298,26 +298,26 @@ services:
              python manage.py runserver 0.0.0.0:8000"
 
   dashboard:
-    image: codongo/interlink_dashboard:latest
-    container_name: interlink_dashboard
+    image: codongo/surfzone_dashboard:latest
+    container_name: surfzone_dashboard
     networks:
-      - interlink_network
+      - surfzone_network
     restart: unless-stopped
     mem_limit: 384m
     cpus: 0.4
 
   landingpage:
-    image: codongo/interlink_landing:latest
-    container_name: interlink_landing
+    image: codongo/surfzone_landing:latest
+    container_name: surfzone_landing
     networks:
-      - interlink_network
+      - surfzone_network
     restart: unless-stopped
     mem_limit: 256m
     cpus: 0.3
 
   nginx:
     build: ./nginx
-    container_name: interlink_nginx
+    container_name: surfzone_nginx
     ports:
       - "80:80"
     volumes:
@@ -327,7 +327,7 @@ services:
     depends_on:
       - backend
     networks:
-      - interlink_network
+      - surfzone_network
     restart: unless-stopped
     mem_limit: 256m
     cpus: 0.3
@@ -338,5 +338,5 @@ volumes:
   media_volume:
 
 networks:
-  interlink_network:
+  surfzone_network:
     driver: bridge

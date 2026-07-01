@@ -1,7 +1,7 @@
 
-# Interlink
+# SurfZone Networks
 
-Interlink is a web application that allows users in remote areas to purchase and utilize internet services through Starlink. This MVP (Minimum Viable Product) provides users with daily, weekly, and monthly internet data bundles. Users can easily purchase these plans via the landing page and pay through MPesa. The admin panel allows for seamless management of users, plans, payments, and network monitoring.
+SurfZone Networks is a web application that allows users in remote areas to purchase and utilize internet services through Starlink. This MVP (Minimum Viable Product) provides users with daily, weekly, and monthly internet data bundles. Users can easily purchase these plans via the landing page and pay through MPesa. The admin panel allows for seamless management of users, plans, payments, and network monitoring.
 
 
 # Table of Contents
@@ -19,7 +19,7 @@ Interlink is a web application that allows users in remote areas to purchase and
 
 ## Project Overview
 
-Interlink provides internet reselling capabilities, using Starlink for remote connectivity. Users can visit the landing page to view available plans, features, and contact details. The application also integrates MPesa for secure payments, and users can access internet immediately after payment confirmation. Only the admin has access to the dashboard for managing orders, payments, and network status.
+SurfZone Networks provides internet reselling capabilities, using Starlink for remote connectivity. Users can visit the landing page to view available plans, features, and contact details. The application also integrates MPesa for secure payments, and users can access internet immediately after payment confirmation. Only the admin has access to the dashboard for managing orders, payments, and network status.
 
 ## Features
 

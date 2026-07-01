@@ -44,7 +44,7 @@
 
 # EXPOSE 8000
 
-# CMD ["sh", "-c", "python manage.py migrate && gunicorn --bind 0.0.0.0:8000 interlink.wsgi:application"]
+# CMD ["sh", "-c", "python manage.py migrate && gunicorn --bind 0.0.0.0:8000 surfzone_logic.wsgi:application"]
 
 
 
@@ -69,4 +69,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "python manage.py migrate && gunicorn --bind 0.0.0.0:8000 interlink.wsgi:application"]
+CMD ["sh", "-c", "python manage.py migrate && gunicorn --bind 0.0.0.0:8000 surfzone_logic.wsgi:application"]

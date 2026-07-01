@@ -9,7 +9,7 @@
 //       <div className="container mx-auto px-4 text-center">
 //         <p className="text-lg text-gray-200">
 //           Need help? Reach us at{' '}
-//           <a href="mailto:support@interlink.com" className="text-pink-300 hover:underline">
+//           <a href="mailto:support@stormclouds.co.ke" className="text-pink-300 hover:underline">
 //             support@SurfZone.com
 //           </a>
 //         </p>
@@ -34,7 +34,7 @@ const Footer = () => {
       <div className="container mx-auto px-4 text-center">
         <p className="text-xl text-gray-200 mb-4"> {/* Larger text */}
           Need help? Reach us at{' '}
-          <a href="mailto:support@interlink.com" className="text-pink-300 hover:underline font-semibold">
+          <a href="mailto:support@stormclouds.co.ke" className="text-pink-300 hover:underline font-semibold">
             support@SurfZone.com
           </a>
         </p>
