@@ -10,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db.models import (
     Sum, Avg, Count, Max, Min, StdDev, Variance,
-    Q, F, Window, ExpressionWrapper, FloatField
+    Q, F, Window, ExpressionWrapper, FloatField, Case, When
 )
 from django.db.models.functions import TruncDate, TruncMonth, TruncYear
 from django.conf import settings
@@ -741,7 +741,13 @@ class UsageAnalyticsView(APIView):
         device_distribution = ClientProfile.objects.values('primary_device').annotate(
             client_count=Count('id'),
             avg_data_gb=Avg('avg_monthly_data_gb'),
-            avg_sessions=Avg(F('hotspot_sessions') / F('days_active'), output_field=FloatField()) if F('days_active') > 0 else Avg('hotspot_sessions'),
+            avg_sessions=Avg(
+                Case(
+                    When(days_active__gt=0, then=F('hotspot_sessions') / F('days_active')),
+                    default=F('hotspot_sessions'),
+                    output_field=FloatField()
+                )
+            ),
             avg_engagement=Avg('engagement_score')
         ).order_by('-client_count')
         
@@ -856,7 +862,7 @@ class UsageAnalyticsView(APIView):
         return {
             'next_7_days': predictions,
             'weekly_forecast': round(sum(p['predicted_data_gb'] for p in predictions), 2),
-            'monthly_forecast': round(sum(p['predicted_data_ggb'] for p in predictions) * 4.3, 2),
+            'monthly_forecast': round(sum(p['predicted_data_gb'] for p in predictions) * 4.3, 2),
             'current_growth_rate': round(growth_rate, 1),
             'trend': 'increasing' if growth_rate > 0 else 'decreasing'
         }
@@ -921,7 +927,10 @@ class UsageAnalyticsView(APIView):
             },
             'bottlenecks': bottlenecks,
             'capacity_planning': {
-                'days_until_full_capacity': int((network_capacity_gb - avg_daily_usage) / (avg_daily_usage * (1 + (self._calculate_usage_growth_rate() / 100)))),
+                'days_until_full_capacity': (
+                    int((network_capacity_gb - avg_daily_usage) / (avg_daily_usage * (1 + (self._calculate_usage_growth_rate() / 100))))
+                    if avg_daily_usage > 0 else None
+                ),
                 'recommended_upgrade_gb': max(0, (avg_daily_usage * 1.3) - network_capacity_gb),
                 'upgrade_urgency': 'high' if load_factor > 85 else 'medium' if load_factor > 70 else 'low'
             }
@@ -1143,17 +1152,17 @@ class BehavioralAnalyticsView(APIView):
             'risk_levels': {
                 'low_risk': {
                     'count': low_risk,
-                    'percentage': round((low_risk / total_clients * 100), 1),
+                    'percentage': round((low_risk / total_clients * 100), 1) if total_clients > 0 else 0,
                     'description': 'Clients with churn risk < 4'
                 },
                 'medium_risk': {
                     'count': medium_risk,
-                    'percentage': round((medium_risk / total_clients * 100), 1),
+                    'percentage': round((medium_risk / total_clients * 100), 1) if total_clients > 0 else 0,
                     'description': 'Clients with churn risk 4-6.9'
                 },
                 'high_risk': {
                     'count': high_risk,
-                    'percentage': round((high_risk / total_clients * 100), 1),
+                    'percentage': round((high_risk / total_clients * 100), 1) if total_clients > 0 else 0,
                     'description': 'Clients with churn risk ≥ 7'
                 }
             },
@@ -1200,17 +1209,17 @@ class BehavioralAnalyticsView(APIView):
             'engagement_levels': {
                 'low_engagement': {
                     'count': low_engagement,
-                    'percentage': round((low_engagement / total_clients * 100), 1),
+                    'percentage': round((low_engagement / total_clients * 100), 1) if total_clients > 0 else 0,
                     'description': 'Clients with engagement < 4'
                 },
                 'medium_engagement': {
                     'count': medium_engagement,
-                    'percentage': round((medium_engagement / total_clients * 100), 1),
+                    'percentage': round((medium_engagement / total_clients * 100), 1) if total_clients > 0 else 0,
                     'description': 'Clients with engagement 4-6.9'
                 },
                 'high_engagement': {
                     'count': high_engagement,
-                    'percentage': round((high_engagement / total_clients * 100), 1),
+                    'percentage': round((high_engagement / total_clients * 100), 1) if total_clients > 0 else 0,
                     'description': 'Clients with engagement ≥ 7'
                 }
             },
@@ -1408,17 +1417,17 @@ class BehavioralAnalyticsView(APIView):
             'satisfaction_levels': {
                 'unsatisfied': {
                     'count': unsatisfied,
-                    'percentage': round((unsatisfied / total_clients * 100), 1),
+                    'percentage': round((unsatisfied / total_clients * 100), 1) if total_clients > 0 else 0,
                     'description': 'Clients with satisfaction < 4'
                 },
                 'neutral': {
                     'count': neutral,
-                    'percentage': round((neutral / total_clients * 100), 1),
+                    'percentage': round((neutral / total_clients * 100), 1) if total_clients > 0 else 0,
                     'description': 'Clients with satisfaction 4-6.9'
                 },
                 'satisfied': {
                     'count': satisfied,
-                    'percentage': round((satisfied / total_clients * 100), 1),
+                    'percentage': round((satisfied / total_clients * 100), 1) if total_clients > 0 else 0,
                     'description': 'Clients with satisfaction ≥ 7'
                 }
             },
@@ -1840,10 +1849,10 @@ class BehavioralAnalyticsView(APIView):
     
     def _calculate_behavioral_health_score(self):
         """Calculate overall behavioral health score (0-100)"""
-        avg_churn_risk = ClientProfile.objects.aggregate(avg=Avg('churn_risk_score'))['avg'] or 0
-        avg_engagement = ClientProfile.objects.aggregate(avg=Avg('engagement_score'))['avg'] or 0
-        avg_satisfaction = ClientProfile.objects.aggregate(avg=Avg('satisfaction_score'))['avg'] or 0
-        
+        avg_churn_risk = float(ClientProfile.objects.aggregate(avg=Avg('churn_risk_score'))['avg'] or 0)
+        avg_engagement = float(ClientProfile.objects.aggregate(avg=Avg('engagement_score'))['avg'] or 0)
+        avg_satisfaction = float(ClientProfile.objects.aggregate(avg=Avg('satisfaction_score'))['avg'] or 0)
+
         # Convert to 0-100 scale
         churn_score = max(0, 100 - (avg_churn_risk * 10))
         engagement_score = avg_engagement * 10

@@ -1388,7 +1388,7 @@ import useAnalytics from '../../components/ClientManagement/hooks/useAnalytics';
 import useCommission from '../../components/ClientManagement/hooks/useCommission';
 
 // Utils
-import { formatCurrency } from '../../components/ClientManagement/utils/formatters';
+import { formatCurrency, safeToFixed } from '../../components/ClientManagement/utils/formatters';
 import { validatePhoneNumber } from '../../components/ClientManagement/utils/validators';
 import ExportService from '../../components/ClientManagement/services/ExportService';
 
@@ -2008,7 +2008,7 @@ const Subscribers = () => {
                   client.churn_risk_score >= 4 ? 'text-yellow-500' :
                   'text-green-500'
                 }`}>
-                  {client.churn_risk_score?.toFixed(1)}
+                  {safeToFixed(client.churn_risk_score, 1)}
                 </p>
               </div>
               <div>
@@ -2092,7 +2092,7 @@ const Subscribers = () => {
                   client.churn_risk_score >= 4 ? 'text-yellow-500' :
                   'text-green-500'
                 }>
-                  {client.churn_risk_score?.toFixed(1)}
+                  {safeToFixed(client.churn_risk_score, 1)}
                 </span>
               </td>
               <td className="p-3 capitalize">

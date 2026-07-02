@@ -157,6 +157,10 @@
  * Formatting utilities for client data
  */
 
+import { safeToFixed } from '../../../utils/safeToFixed';
+
+export { safeToFixed };
+
 /**
  * Format currency
  */
@@ -239,21 +243,21 @@ export const formatPhoneNumber = (phone) => {
  * Format data size (GB/TB)
  */
 export const formatDataSize = (gb, decimals = 1) => {
-  if (gb === null || gb === undefined) return '0 GB';
-  
-  if (gb >= 1000) {
-    return `${(gb / 1000).toFixed(decimals)} TB`;
+  const num = Number(gb);
+  if (gb === null || gb === undefined || Number.isNaN(num)) return '0 GB';
+
+  if (num >= 1000) {
+    return `${(num / 1000).toFixed(decimals)} TB`;
   }
-  
-  return `${gb.toFixed(decimals)} GB`;
+
+  return `${num.toFixed(decimals)} GB`;
 };
 
 /**
  * Format percentage
  */
 export const formatPercentage = (value, decimals = 1) => {
-  if (value === null || value === undefined) return '0%';
-  return `${value.toFixed(decimals)}%`;
+  return `${safeToFixed(value, decimals, '0')}%`;
 };
 
 /**
@@ -274,8 +278,8 @@ export const formatClientData = (client) => {
     customer_since_formatted: formatDate(client.created_at || client.customer_since, 'medium'),
     last_login_formatted: formatDate(client.last_login_date, 'datetime'),
     last_payment_formatted: formatDate(client.last_payment_date, 'medium'),
-    churn_risk_formatted: `${client.churn_risk_score?.toFixed(1)}/10`,
-    engagement_formatted: `${client.engagement_score?.toFixed(1)}/10`,
+    churn_risk_formatted: `${safeToFixed(client.churn_risk_score, 1, '—')}/10`,
+    engagement_formatted: `${safeToFixed(client.engagement_score, 1, '—')}/10`,
     tier_display: client.tier?.charAt(0).toUpperCase() + client.tier?.slice(1)?.replace('_', ' ') || 'New',
     status_display: client.status?.charAt(0).toUpperCase() + client.status?.slice(1)?.replace('_', ' ') || 'Unknown',
     connection_type_display: client.connection_type?.toUpperCase() || 'N/A',
