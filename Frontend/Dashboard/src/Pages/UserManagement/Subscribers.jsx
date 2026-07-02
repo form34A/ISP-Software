@@ -2465,9 +2465,9 @@ const Subscribers = () => {
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.9 }}
-          className={`w-full max-w-2xl rounded-xl shadow-lg border ${themeClasses.bg.card} ${themeClasses.border.light}`}
+          className={`w-full max-w-2xl max-h-[90vh] flex flex-col rounded-xl shadow-lg border ${themeClasses.bg.card} ${themeClasses.border.light}`}
         >
-          <div className={`p-6 border-b ${themeClasses.border.light}`}>
+          <div className={`p-6 border-b flex-shrink-0 ${themeClasses.border.light}`}>
             <div className="flex items-center justify-between">
               <h2 className={`text-xl font-semibold ${themeClasses.text.primary}`}>
                 Create New Client
@@ -2481,7 +2481,7 @@ const Subscribers = () => {
             </div>
           </div>
 
-          <div className="p-6 space-y-6">
+          <div className="p-6 space-y-6 overflow-y-auto">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <motion.div variants={fieldVariants} whileFocus="focus" initial="blur">
                 <label className={`block text-sm font-medium mb-2 ${themeClasses.text.secondary}`}>
@@ -2594,7 +2594,7 @@ const Subscribers = () => {
             </div>
           </div>
 
-          <div className={`p-6 border-t flex justify-end gap-2 ${themeClasses.border.light}`}>
+          <div className={`p-6 border-t flex-shrink-0 flex justify-end gap-2 ${themeClasses.border.light}`}>
             <button
               onClick={() => setShowCreateModal(false)}
               className={`px-6 py-2 rounded-lg font-medium transition-all hover:scale-105 ${themeClasses.button.secondary}`}

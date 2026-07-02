@@ -2362,15 +2362,11 @@ class CreatePPPoEClientView(APIView):
                             user_account = existing_user
                     else:
                         # Create new PPPoE client
-                        # This assumes UserAccount has a create method
-                        user_account = UserAccount.objects.create(
+                        user_account = UserAccount.objects.create_client_user(
                             phone_number=normalized_phone,
-                            username=f"client_{normalized_phone}",
+                            client_name=name,
                             connection_type='pppoe'
                         )
-                        if hasattr(user_account, 'name'):
-                            user_account.name = name
-                            user_account.save()
                         
                 except Exception as e:
                     logger.error(f"Error creating user account: {str(e)}")
@@ -2548,9 +2544,8 @@ class CreateHotspotClientView(APIView):
                     }, status=status.HTTP_400_BAD_REQUEST)
                 
                 # Create hotspot client
-                user_account = UserAccount.objects.create(
+                user_account = UserAccount.objects.create_client_user(
                     phone_number=normalized_phone,
-                    username=f"hotspot_{normalized_phone}",
                     connection_type='hotspot'
                 )
                 
@@ -2561,14 +2556,21 @@ class CreateHotspotClientView(APIView):
                     status=status.HTTP_503_SERVICE_UNAVAILABLE
                 )
             
-            # Create business profile
-            client_profile = ClientProfile.objects.create(
+            # Business profile is auto-created by the client_account_created signal
+            # (ClientOnboardingService.onboard_hotspot_client); fetch it rather than
+            # creating a second one, which would violate the OneToOne user_id constraint.
+            client_profile, created = ClientProfile.objects.get_or_create(
                 user=user_account,
-                client_id=uuid.uuid4(),
-                client_type=client_type,
-                customer_since=timezone.now()
+                defaults={
+                    'client_id': uuid.uuid4(),
+                    'client_type': client_type,
+                    'customer_since': timezone.now()
+                }
             )
-            
+            if not created and client_profile.client_type != client_type:
+                client_profile.client_type = client_type
+                client_profile.save()
+
             # Send welcome SMS if requested
             if send_welcome_sms:
                 try:

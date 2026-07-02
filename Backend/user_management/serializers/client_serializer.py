@@ -1628,17 +1628,24 @@ class ClientProfileSerializer(BaseSerializer):
             return []
     
     def get_subscription_status(self, obj):
-        """Get subscription status via Service Operations"""
+        """Get subscription status directly from Service Operations DB.
+
+        Deliberately not routed through UserManagementAdapter's HTTP client:
+        that adapter calls BASE_URL (this same backend, localhost:8000), and
+        with a single gunicorn worker the self-request can never be accepted
+        while the current request (this list view) is still being handled,
+        causing a worker timeout for every client row.
+        """
         try:
-            from service_operations.adapters.user_management_adapter import UserManagementAdapter
-            client_details = UserManagementAdapter.get_client_details(str(obj.client_id))
-            
-            if not client_details:
+            from service_operations.models.subscription_models import Subscription
+            latest = Subscription.objects.filter(client_id=obj.client_id).order_by('-created_at').first()
+
+            if not latest:
                 return {'status': 'no_subscription', 'message': 'No active subscription'}
-            
-            return client_details.get('subscription_status', {})
+
+            return {'status': latest.status, 'subscription_id': str(latest.id)}
         except Exception as e:
-            logger.error(f"Error fetching subscription status via Service Operations: {e}")
+            logger.error(f"Error fetching subscription status: {e}")
             return {'status': 'error', 'message': str(e)}
     
     def get_data_usage_details(self, obj):
@@ -1749,8 +1756,7 @@ class ClientProfileSerializer(BaseSerializer):
         interactions = ClientInteraction.objects.filter(
             client=obj
         ).order_by('-started_at')[:5]
-        
-        from user_management.serializers.client_serializers import ClientInteractionSerializer
+
         return ClientInteractionSerializer(interactions, many=True).data
     
     def get_commission_history(self, obj):
@@ -1761,8 +1767,7 @@ class ClientProfileSerializer(BaseSerializer):
         transactions = CommissionTransaction.objects.filter(
             marketer=obj
         ).order_by('-transaction_date')[:5]
-        
-        from user_management.serializers.client_serializers import CommissionTransactionSerializer
+
         return CommissionTransactionSerializer(transactions, many=True).data
     
     def get_available_actions(self, obj):

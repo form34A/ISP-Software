@@ -41,4 +41,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /usr/local /usr/local
 COPY . .
 EXPOSE 8000
-CMD ["sh", "-c", "python manage.py migrate && gunicorn --bind 0.0.0.0:8000 surfzone_logic.wsgi:application"]
+CMD ["sh", "-c", "python manage.py migrate && gunicorn --bind 0.0.0.0:8000 --workers 3 --timeout 120 surfzone_logic.wsgi:application"]

@@ -177,19 +177,19 @@ export const validatePhoneNumber = (phone) => {
   
   // Check length and prefix
   if (cleaned.length === 10 && cleaned.startsWith('07')) {
-    return { valid: true, normalized: `254${cleaned.slice(1)}` };
+    return { valid: true, normalized: `+254${cleaned.slice(1)}` };
   }
-  
+
   if (cleaned.length === 10 && cleaned.startsWith('01')) {
-    return { valid: true, normalized: `254${cleaned.slice(1)}` };
+    return { valid: true, normalized: `+254${cleaned.slice(1)}` };
   }
-  
+
   if (cleaned.length === 12 && cleaned.startsWith('254')) {
-    return { valid: true, normalized: cleaned };
+    return { valid: true, normalized: `+${cleaned}` };
   }
-  
+
   if (cleaned.length === 9 && !cleaned.startsWith('0')) {
-    return { valid: true, normalized: `254${cleaned}` };
+    return { valid: true, normalized: `+254${cleaned}` };
   }
   
   return { 
