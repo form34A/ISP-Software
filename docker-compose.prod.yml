@@ -1,0 +1,60 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: surfzone_db
+    volumes:
+      - surfzone_mysql:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    networks: [surfzone_net]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 10s
+      retries: 15
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+
+  redis:
+    image: redis:alpine
+    container_name: surfzone_redis
+    networks: [surfzone_net]
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+
+  backend:
+    image: codongo/surfzone_backend:latest
+    container_name: surfzone_backend
+    volumes:
+      - ./Backend:/app
+    env_file: [.env]
+    environment:
+      DJANGO_SETTINGS_MODULE: surfzone_logic.settings
+      DB_HOST: db
+      REDIS_HOST: redis
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [surfzone_net]
+    restart: unless-stopped
+
+  web:
+    image: codongo/surfzone_web:latest
+    container_name: surfzone_web
+    depends_on: [backend]
+    ports:
+      - "127.0.0.1:8090:80"
+    networks: [surfzone_net]
+    restart: unless-stopped
+
+volumes:
+  surfzone_mysql:
+
+networks:
+  surfzone_net:
+    driver: bridge

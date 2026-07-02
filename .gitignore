@@ -22,6 +22,10 @@ Backend/staticfiles/
 Backend/media/
 db.sqlite3
 
+# DB backups
+*.sql
+backup_*.sql
+
 # Node / frontend
 node_modules/
 dist/
