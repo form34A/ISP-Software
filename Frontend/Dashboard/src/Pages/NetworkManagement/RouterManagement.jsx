@@ -4329,7 +4329,8 @@ const RouterManagement = () => {
     const connectWebSocket = () => {
       try {
         console.log('🔌 Connecting to network WebSocket...');
-        const ws = new WebSocket(`ws://${window.location.host}/ws/routers/`);
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/routers/`);
         
         ws.onopen = () => {
           console.log('WebSocket connected');

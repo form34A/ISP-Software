@@ -54,9 +54,16 @@ client_plan_urls = [
 ]
 
 urlpatterns = [
+    # Commission Management
+    # NOTE: must come before the router include below — the router's
+    # auto-generated `commissions/<pk>/` detail route would otherwise
+    # swallow `commissions/payout/` (treating "payout" as a pk) since
+    # Django resolves urlpatterns in list order.
+    path('commissions/payout/', CommissionPayoutView.as_view(), name='commission-payout'),
+
     # Client Management
     path('', include(router.urls)),
-    
+
     # Client Creation
     path('clients/pppoe/create/', CreatePPPoEClientView.as_view(), name='create-pppoe-client'),
     path('clients/hotspot/create/', CreateHotspotClientView.as_view(), name='create-hotspot-client'),
@@ -72,8 +79,7 @@ urlpatterns = [
     path('analytics/hotspot/', HotspotAnalyticsView.as_view(), name='hotspot-analytics'),
     path('analytics/trends/', TrendAnalyticsView.as_view(), name='trend-analytics'),
     
-    # Commission Management
-    path('commissions/payout/', CommissionPayoutView.as_view(), name='commission-payout'),
+    # Commission Management (marketers)
     path('marketers/performance/', MarketerPerformanceView.as_view(), name='marketer-performance'),
     path('marketers/performance/<uuid:marketer_id>/', MarketerPerformanceView.as_view(), name='marketer-performance-detail'),
     

@@ -1471,7 +1471,7 @@ const Subscribers = () => {
     error: analyticsError,
     handleTimeRangeChange,
     handleConnectionTypeChange,
-    refreshAnalytics
+    handleRefresh: refreshAnalytics
   } = useAnalytics(timeRange, connectionTypeFilter);
 
   const {
@@ -1479,7 +1479,7 @@ const Subscribers = () => {
     summary: commissionSummary,
     isLoading: commissionLoading,
     error: commissionError,
-    refreshCommissions
+    handleRefresh: refreshCommissions
   } = useCommission(user?.id);
 
   // ===========================================================================

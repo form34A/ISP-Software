@@ -1217,8 +1217,16 @@ const BandwidthAllocation = () => {
 
   const fetchPlans = useCallback(async () => {
     try {
-      const response = await api.get("/api/internet_plans/");
-      setPlans(response.data);
+      const response = await api.get("/api/internet_plans/plans/");
+      const data = response.data;
+      const plansList = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.results)
+          ? data.results
+          : Array.isArray(data?.plans)
+            ? data.plans
+            : [];
+      setPlans(plansList);
     } catch (error) {
       console.error("Error fetching plans:", error);
       toast.error("Failed to fetch plans");

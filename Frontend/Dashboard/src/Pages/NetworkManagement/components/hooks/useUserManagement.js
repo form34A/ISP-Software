@@ -171,9 +171,15 @@ export const useUserManagement = () => {
 
   const fetchAvailablePlans = useCallback(async () => {
     try {
-      // FIXED: Use correct internet plans endpoint
-      const response = await api.get("/api/internet_plans/");
-      return response.data;
+      const response = await api.get("/api/internet_plans/plans/");
+      const data = response.data;
+      return Array.isArray(data)
+        ? data
+        : Array.isArray(data?.results)
+          ? data.results
+          : Array.isArray(data?.plans)
+            ? data.plans
+            : [];
     } catch (error) {
       console.error("Error fetching plans:", error);
       return [];
