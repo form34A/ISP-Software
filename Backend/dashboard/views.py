@@ -1031,7 +1031,9 @@ class DashboardView(APIView):
             ).values('day').annotate(
                 count=Count('id')
             ).order_by('day')
-            
+
+            daily_subs = list(daily_subs)
+
             return [
                 {
                     "month": entry['day'].strftime("%b %d"),
