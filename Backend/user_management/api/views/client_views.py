@@ -20,6 +20,7 @@ from rest_framework.pagination import PageNumberPagination
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db.models import Q, Count, Sum, Avg, F
+from django.db.models.functions import TruncMonth
 from django.db import transaction
 from django.core.cache import cache
 from decimal import Decimal
@@ -2154,12 +2155,26 @@ class DashboardView(APIView):
             count=Count('id'),
             avg_ltv=Avg('lifetime_value')
         ).order_by('-avg_ltv')
-        
+
+        # Real new-client signups grouped by month, last 7 months. Empty DB / no
+        # signups yields an empty list — never zero-filled or synthesized.
+        monthly_signups = ClientProfile.objects.annotate(
+            month=TruncMonth('created_at')
+        ).values('month').annotate(
+            count=Count('id')
+        ).order_by('month')
+
+        new_clients_trend = [
+            {'label': item['month'].strftime('%b %Y'), 'count': item['count']}
+            for item in monthly_signups
+        ][-7:]
+
         return {
             'connection_distribution': list(connection_dist),
             'tier_distribution': list(tier_dist),
             'client_type_distribution': list(client_type_dist),
-            'retention_metrics': self._calculate_retention_metrics(start_date, end_date)
+            'retention_metrics': self._calculate_retention_metrics(start_date, end_date),
+            'new_clients_trend': new_clients_trend
         }
     
     def _calculate_growth_rate(self, start_date, end_date):

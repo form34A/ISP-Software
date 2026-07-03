@@ -499,11 +499,12 @@ const useAnalytics = (initialTimeRange = '30d', initialConnectionType = 'all') =
       }]
     };
     
+    const newClientsTrend = client_analytics?.new_clients_trend || [];
     const clientsChartData = {
-      labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'],
+      labels: newClientsTrend.map(item => item.label),
       datasets: [{
         label: 'New Clients',
-        data: client_analytics?.new_clients_trend || [12, 19, 15, 25, 22, 18, 30],
+        data: newClientsTrend.map(item => item.count),
         borderColor: '#10b981',
         backgroundColor: 'rgba(16, 185, 129, 0.1)',
         tension: 0.4,
