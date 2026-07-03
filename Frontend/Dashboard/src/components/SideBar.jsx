@@ -77,7 +77,7 @@ const SideBar = ({ onMobileMenuClose, isMobileMenuOpen }) => {
     logout?.();
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
-    navigate("/login", { replace: true });
+    navigate("/dashboard/login", { replace: true });
   }, [logout, navigate]);
 
   // Handle logo click (go to dashboard)

@@ -747,7 +747,7 @@ export const AuthProvider = ({ children }) => {
     // FIXED: Full redirect after cleanup (no suppress now, as it's explicit logout)
     if (!window.location.pathname.includes('/login')) {
       setTimeout(() => {
-        window.location.href = '/login';
+        window.location.href = '/dashboard/login';
       }, 1000);
     }
 
@@ -939,14 +939,14 @@ export const AuthProvider = ({ children }) => {
       clearTimeout(tokenRefreshTimeout.current);
     }
 
-    // Refresh 1 minute before typical JWT expiration (14 minutes)
+    // Refresh 1 minute before JWT expiration (30 minutes, see SIMPLE_JWT.ACCESS_TOKEN_LIFETIME)
     tokenRefreshTimeout.current = setTimeout(() => {
       refreshToken()
         .then((success) => {
           if (success) scheduleTokenRefresh();
         })
         .catch(console.error);
-    }, 13 * 60 * 1000); // 13 minutes
+    }, 29 * 60 * 1000); // 29 minutes
   }, [authState.isAuthenticated, authState.loading, refreshToken]);
 
   // Effects with cleanup - FIXED: Add deps stability and abort cleanup

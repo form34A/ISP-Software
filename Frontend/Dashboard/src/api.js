@@ -848,7 +848,7 @@ const handleUnauthorized = (suppressRedirect = false) => {
   
   if (!suppressRedirect && !window.location.pathname.includes('/login')) {
     setTimeout(() => {
-      window.location.href = '/login';
+      window.location.href = '/dashboard/login';
     }, 1000);
   }
 };

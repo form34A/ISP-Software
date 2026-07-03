@@ -1184,7 +1184,7 @@ const PlanTemplates = ({
               Please log in to access plan templates.
             </p>
             <button
-              onClick={() => window.location.href = '/login'}
+              onClick={() => window.location.href = '/dashboard/login'}
               className={`px-6 py-3 rounded-lg font-medium ${themeClasses.button.primary}`}
             >
               Go to Login

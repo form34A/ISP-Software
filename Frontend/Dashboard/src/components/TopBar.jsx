@@ -46,7 +46,7 @@ const TopBar = ({ onMenuToggle }) => {
 
   const handleLogout = useCallback(() => {
     logout();
-    navigate("/login", { replace: true });
+    navigate("/dashboard/login", { replace: true });
   }, [logout, navigate]);
 
   const handleSearch = useCallback((e) => {
@@ -102,7 +102,7 @@ const TopBar = ({ onMenuToggle }) => {
   }
 
   if (!isAuthenticated) {
-    navigate("/login", { replace: true });
+    navigate("/dashboard/login", { replace: true });
     return null;
   }
 

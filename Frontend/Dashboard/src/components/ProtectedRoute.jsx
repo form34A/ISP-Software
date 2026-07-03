@@ -7,7 +7,7 @@ const ProtectedRoute = ({ children, permission }) => {
     const { isAuthenticated, userPermissions } = useAuth();
 
     if (!isAuthenticated) {
-        return <Navigate to="/login" replace />;
+        return <Navigate to="/dashboard/login" replace />;
     }
 
     if (permission && !userPermissions.includes(permission)) {

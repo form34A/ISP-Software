@@ -4325,18 +4325,49 @@ const RouterManagement = () => {
   }, []); // FIXED: Empty deps to run only once on mount, preventing re-runs from hook deps
 
   // WebSocket connection for real-time updates - uses background refresh to avoid notifications
+  const hasRouters = routers.length > 0;
+
   useEffect(() => {
+    // Nothing to monitor yet - don't open a socket until at least one router exists
+    if (!hasRouters) {
+      return;
+    }
+
+    const MAX_RETRIES = 10;
+    const BASE_DELAY_MS = 1000;
+    const MAX_DELAY_MS = 30000;
+
+    let cancelled = false;
+    let ws = null;
+    let retryCount = 0;
+    let reconnectTimeout = null;
+
+    const scheduleReconnect = () => {
+      if (cancelled) return;
+      if (retryCount >= MAX_RETRIES) {
+        console.error(`WebSocket: giving up after ${MAX_RETRIES} failed reconnect attempts`);
+        return;
+      }
+      const delay = Math.min(BASE_DELAY_MS * 2 ** retryCount, MAX_DELAY_MS);
+      retryCount += 1;
+      reconnectTimeout = setTimeout(() => {
+        reconnectTimeout = null;
+        connectWebSocket();
+      }, delay);
+    };
+
     const connectWebSocket = () => {
       try {
         console.log('🔌 Connecting to network WebSocket...');
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/routers/`);
-        
+        ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/routers/`);
+
         ws.onopen = () => {
           console.log('WebSocket connected');
+          retryCount = 0;
           dispatch({ type: 'SET_WEBSOCKET_CONNECTED', payload: true });
         };
-        
+
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
@@ -4345,40 +4376,36 @@ const RouterManagement = () => {
             console.error('Error processing WebSocket message:', err);
           }
         };
-        
+
         ws.onclose = (event) => {
           console.log('WebSocket disconnected:', event.code, event.reason);
           dispatch({ type: 'SET_WEBSOCKET_CONNECTED', payload: false });
-          
-          // Attempt reconnection after 5 seconds with exponential backoff
-          setTimeout(() => {
-            connectWebSocket();
-          }, 5000);
+          scheduleReconnect();
         };
-        
+
         ws.onerror = (error) => {
           console.error('WebSocket error:', error);
           dispatch({ type: 'SET_WEBSOCKET_CONNECTED', payload: false });
         };
-
-        return ws;
       } catch (error) {
         console.error('WebSocket connection failed:', error);
-        // Retry after 10 seconds if initial connection fails
-        setTimeout(() => {
-          connectWebSocket();
-        }, 10000);
-        return null;
+        scheduleReconnect();
       }
     };
 
-    const ws = connectWebSocket();
+    connectWebSocket();
+
     return () => {
+      cancelled = true;
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close();
       }
     };
-  }, [dispatch]);
+  }, [dispatch, hasRouters]);
 
   const handleWebSocketMessage = useCallback((data) => {
     switch (data.type) {

@@ -570,8 +570,9 @@ import AdminProfile from "./Pages/Account/AdminProfile";
 // Route configuration for better maintainability
 const routeConfig = {
   public: [
-    { path: "/", element: <Navigate to="/login" replace /> },
+    { path: "/", element: <Navigate to="/dashboard/login" replace /> },
     { path: "/login", element: <Login /> },
+    { path: "/dashboard/login", element: <Login /> },
     { path: "/signup", element: <Signup /> },
     { path: "/verify-email", element: <VerifyEmail /> },
     { path: "/activate/:uid/:token", element: <Activate /> },
