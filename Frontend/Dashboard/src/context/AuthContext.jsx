@@ -788,6 +788,10 @@ export const AuthProvider = ({ children }) => {
         const newAccessToken = response.data.access;
         localStorage.setItem(ACCESS_TOKEN, newAccessToken);
 
+        if (response.data.refresh) {
+          localStorage.setItem(REFRESH_TOKEN, response.data.refresh);
+        }
+
         const userDetails = await fetchUserDetails(newAccessToken, true, signal);
         if (!userDetails) throw new Error('Failed to fetch user details after refresh');
 
