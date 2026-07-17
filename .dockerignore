@@ -1,0 +1,16 @@
+# Keeps the Docker build context small. nginx/Dockerfile only needs
+# Frontend/Dashboard/, Frontend/Landingpage/, nginx/, and this Dockerfile
+# itself (it runs its own `npm install` inside each build stage, so local
+# node_modules aren't needed) — everything below is safe to exclude.
+#
+# NOTE: bare patterns in .dockerignore only match at the build-context
+# root (unlike .gitignore's implicit recursion) — every pattern here that
+# also needs to match in subdirectories (e.g. Backend/.env,
+# Backend/logs/*.log) uses an explicit **/ prefix. Verified empirically.
+
+.git
+**/node_modules
+**/*.log
+**/__pycache__
+**/.env
+**/.env.*

@@ -288,6 +288,7 @@ django_asgi_app = get_asgi_application()
 # Import channels components after Django setup
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
+from surfzone_logic.ws_auth import JWTAuthMiddleware
 
 # Import WebSocket routing from multiple apps
 websocket_urlpatterns = []
@@ -329,8 +330,14 @@ if websocket_urlpatterns:
     print(f"✅ Configuring WebSocket with {len(websocket_urlpatterns)} total URL patterns")
     
     # Temporarily remove AllowedHostsOriginValidator for debugging
-    websocket_application = AuthMiddlewareStack(
-        URLRouter(websocket_urlpatterns)
+    # JWTAuthMiddleware first checks for a ?token=<JWT> query param (browsers
+    # can't set an Authorization header on a WS handshake); if absent, it
+    # leaves scope["user"] unset so the wrapped AuthMiddlewareStack can still
+    # fall back to session-cookie auth.
+    websocket_application = JWTAuthMiddleware(
+        AuthMiddlewareStack(
+            URLRouter(websocket_urlpatterns)
+        )
     )
 else:
     print("⚠️ No WebSocket URL patterns found, WebSocket functionality disabled")

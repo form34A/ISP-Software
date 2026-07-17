@@ -1114,7 +1114,7 @@ class DashboardView(APIView):
                     "ip": health_check.router.ip,
                     "status": health_check.router.status,
                     "health_score": health_check.health_score,
-                    "active_users": health_check.router.current_clients or 0,
+                    "active_users": health_check.router.get_active_users_count() or 0,
                     "last_seen": health_check.timestamp
                 })
             return router_health

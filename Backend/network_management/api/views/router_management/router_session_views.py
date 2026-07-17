@@ -298,7 +298,8 @@ class RouterActivateUserView(APIView):
                     router.ip,
                     username=router.username,
                     password=router.password,
-                    port=router.port
+                    port=router.port,
+                    plaintext_login=True
                 )
                 api = api_pool.get_api()
                 hotspot = api.get_resource("/ip/hotspot/user")
@@ -393,7 +394,8 @@ class RouterActivateUserView(APIView):
                     router.ip,
                     username=router.username,
                     password=router.password,
-                    port=router.port
+                    port=router.port,
+                    plaintext_login=True
                 )
                 api = api_pool.get_api()
                 pppoe_secret = api.get_resource("/ppp/secret")
@@ -579,7 +581,8 @@ class SessionRecoveryView(APIView):
                     router.ip,
                     username=router.username,
                     password=router.password,
-                    port=router.port
+                    port=router.port,
+                    plaintext_login=True
                 )
                 api = api_pool.get_api()
                 hotspot = api.get_resource("/ip/hotspot/user")
@@ -626,7 +629,8 @@ class SessionRecoveryView(APIView):
                     router.ip,
                     username=router.username,
                     password=router.password,
-                    port=router.port
+                    port=router.port,
+                    plaintext_login=True
                 )
                 api = api_pool.get_api()
                 pppoe_secret = api.get_resource("/ppp/secret")

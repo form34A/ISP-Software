@@ -187,13 +187,14 @@ class IPAddress(models.Model):
         """Assign IP address to router interface"""
         if self.status != 'available':
             raise ValueError("IP is not available for assignment")
-        
+
         try:
             api = RouterOsApiPool(
                 self.router.ip,
                 username=self.router.username,
                 password=self.router.password,
-                port=self.router.port
+                port=self.router.port,
+                plaintext_login=True
             ).get_api()
             
             ip_resource = api.get_resource('/ip/address')
@@ -219,7 +220,8 @@ class IPAddress(models.Model):
                 self.router.ip,
                 username=self.router.username,
                 password=self.router.password,
-                port=self.router.port
+                port=self.router.port,
+                plaintext_login=True
             ).get_api()
             
             ip_resource = api.get_resource('/ip/address')
@@ -273,7 +275,8 @@ class Subnet(models.Model):
                 self.router.ip,
                 username=self.router.username,
                 password=self.router.password,
-                port=self.router.port
+                port=self.router.port,
+                plaintext_login=True
             ).get_api()
             
             ip_resource = api.get_resource('/ip/address')
@@ -340,7 +343,8 @@ class DHCPLease(models.Model):
                 self.ip_address.router.ip,
                 username=self.ip_address.router.username,
                 password=self.ip_address.router.password,
-                port=self.ip_address.router.port
+                port=self.ip_address.router.port,
+                plaintext_login=True
             ).get_api()
             
             dhcp_resource = api.get_resource('/ip/dhcp-server/lease')

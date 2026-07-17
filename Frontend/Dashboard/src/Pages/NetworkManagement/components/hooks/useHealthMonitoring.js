@@ -387,10 +387,7 @@ export const useHealthMonitoring = () => {
     
     try {
       const params = optimizeForMobile ? '?basic=true' : '';
-      const response = await api.smartFetch({
-        method: 'get',
-        url: `/api/network_management/health-monitoring/${params}`
-      }, {
+      const response = await api.smartFetch(`/api/network_management/health-monitoring/${params}`, {
         timeout: optimizeForMobile ? 10000 : 20000,
         retries: 1,
         fallbackData: optimizeForMobile ? getBasicFallbackData() : getDetailedFallbackData(),
@@ -441,11 +438,9 @@ export const useHealthMonitoring = () => {
           }
         : { router_ids: routerIds };
       
-      const response = await api.smartFetch({
+      const response = await api.smartFetch('/api/network_management/bulk-connection-test/', {
         method: 'post',
-        url: '/api/network_management/bulk-connection-test/',
-        data: payload
-      }, {
+        body: payload,
         timeout: optimizeForMobile ? 15000 : 45000,
         retries: 1,
         showToast: true
@@ -504,10 +499,7 @@ export const useHealthMonitoring = () => {
 
     try {
       const params = optimizeForMobile ? '?basic=true' : '';
-      const response = await api.smartFetch({
-        method: 'get',
-        url: `/api/network_management/routers/${routerId}/status/${params}`
-      }, {
+      const response = await api.smartFetch(`/api/network_management/routers/${routerId}/status/${params}`, {
         timeout: optimizeForMobile ? 8000 : 20000,
         retries: 1,
         fallbackData: optimizeForMobile ? getBasicMetricsFallback(routerId) : getDetailedMetricsFallback(routerId),
@@ -536,14 +528,11 @@ export const useHealthMonitoring = () => {
 
     try {
       const optimizedDays = optimizeForMobile ? Math.min(days, 3) : days;
-      const response = await api.smartFetch({
-        method: 'get',
-        url: `/api/network_management/routers/${routerId}/connection-history/`,
-        params: { 
+      const response = await api.smartFetch(`/api/network_management/routers/${routerId}/connection-history/`, {
+        params: {
           days: optimizedDays,
           limit: optimizeForMobile ? 10 : 50
-        }
-      }, {
+        },
         timeout: optimizeForMobile ? 10000 : 25000,
         retries: 1,
         fallbackData: getConnectionHistoryFallback(optimizedDays, routerId),
@@ -583,11 +572,9 @@ export const useHealthMonitoring = () => {
     
     try {
       const payload = optimizeForMobile ? { basic_diagnostics: true } : {};
-      const response = await api.smartFetch({
+      const response = await api.smartFetch(`/api/network_management/routers/${routerId}/diagnostics/`, {
         method: 'post',
-        url: `/api/network_management/routers/${routerId}/diagnostics/`,
-        data: payload
-      }, {
+        body: payload,
         timeout: optimizeForMobile ? 15000 : 30000,
         retries: 1,
         showToast: true
@@ -621,10 +608,7 @@ export const useHealthMonitoring = () => {
     }
 
     try {
-      const response = await api.smartFetch({
-        method: 'get',
-        url: `/api/network_management/routers/${routerId}/quick-status/`
-      }, {
+      const response = await api.smartFetch(`/api/network_management/routers/${routerId}/quick-status/`, {
         timeout: 5000,
         retries: 0, // No retries for quick checks
         fallbackData: getQuickHealthFallback(routerId),

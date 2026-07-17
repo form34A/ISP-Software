@@ -53,7 +53,8 @@ class RouterStatsView(APIView):
                     router.ip,
                     username=router.username,
                     password=router.password,
-                    port=router.port
+                    port=router.port,
+                    plaintext_login=True
                 )
                 api = api_pool.get_api()
 
@@ -99,10 +100,16 @@ class RouterStatsView(APIView):
                     "timestamp": timezone.now()
                 }
 
-                RouterStats.objects.create(router=router, **latest_stats)
+                RouterStats.objects.create(
+                    router=router,
+                    connected_clients_count=latest_stats["clients"],
+                    **{k: v for k, v in latest_stats.items() if k != "clients"}
+                )
                 serializer = RouterStatsSerializer(stats, many=True)
 
-                history = {key: [getattr(s, key) for s in stats] for key in latest_stats if key != "timestamp"}
+                # Model field is connected_clients_count; "clients" is only the API-facing key
+                stat_field_map = {"clients": "connected_clients_count"}
+                history = {key: [getattr(s, stat_field_map.get(key, key)) for s in stats] for key in latest_stats if key != "timestamp"}
                 history["timestamps"] = [s.timestamp.strftime("%H:%M:%S") for s in stats]
 
                 api_pool.disconnect()
@@ -139,7 +146,11 @@ class RouterStatsView(APIView):
                     "timestamp": timezone.now()
                 }
 
-                RouterStats.objects.create(router=router, **latest_stats)
+                RouterStats.objects.create(
+                    router=router,
+                    connected_clients_count=latest_stats["clients"],
+                    **{k: v for k, v in latest_stats.items() if k != "clients"}
+                )
                 response_data = {"latest": latest_stats, "history": {}}
                 cache.set(cache_key, response_data, 60)
                 
@@ -378,7 +389,8 @@ class RouterRebootView(APIView):
                     router.ip,
                     username=router.username,
                     password=router.password,
-                    port=router.port
+                    port=router.port,
+                    plaintext_login=True
                 )
                 api = api_pool.get_api()
                 api.get_resource("/system").call("reboot")

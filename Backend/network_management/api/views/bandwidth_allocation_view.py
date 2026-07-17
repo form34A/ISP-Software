@@ -99,7 +99,8 @@ class BandwidthAllocationListView(APIView):
                 router.ip,
                 username=router.username,
                 password=router.password,
-                port=router.port
+                port=router.port,
+                plaintext_login=True
             ).get_api()
             
             qos_resource = api.get_resource('/queue/simple')
@@ -193,7 +194,8 @@ class BandwidthAllocationDetailView(APIView):
                 router.ip,
                 username=router.username,
                 password=router.password,
-                port=router.port
+                port=router.port,
+                plaintext_login=True
             ).get_api()
             
             qos_resource = api.get_resource('/queue/simple')
@@ -249,7 +251,8 @@ class BandwidthAllocationDetailView(APIView):
                 router.ip,
                 username=router.username,
                 password=router.password,
-                port=router.port
+                port=router.port,
+                plaintext_login=True
             ).get_api()
             
             qos_resource = api.get_resource('/queue/simple')

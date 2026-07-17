@@ -165,6 +165,7 @@ class ProductionMACDetector:
                             username=router.username,
                             password=router.password,
                             port=router.port,
+                            plaintext_login=True,
                             timeout=10
                         )
                         api = api_pool.get_api()

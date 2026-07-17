@@ -646,7 +646,8 @@ class DiagnosticTestListView(APIView):
         try:
             router = test.router
             api = RouterOsApiPool(
-                router.ip, username=router.username, password=router.password, port=router.port
+                router.ip, username=router.username, password=router.password, port=router.port,
+                plaintext_login=True
             ).get_api()
 
             # Run bandwidth test
@@ -826,7 +827,8 @@ class DiagnosticTestListView(APIView):
         try:
             router = test.router
             api = RouterOsApiPool(
-                router.ip, username=router.username, password=router.password, port=router.port
+                router.ip, username=router.username, password=router.password, port=router.port,
+                plaintext_login=True
             ).get_api()
 
             # System resource usage

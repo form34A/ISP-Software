@@ -1936,8 +1936,16 @@ class RouterSerializer(serializers.ModelSerializer):
             except Exception as e:
                 # Log error but don't fail creation
                 logger.error(f"Auto-connection test failed for new router {router.id}: {str(e)}")
-        
+
         return router
+
+    def update(self, instance, validated_data):
+        """Update router, preserving the stored password when none is provided."""
+        # Don't overwrite the stored password with a blank/leftover value
+        if not validated_data.get('password'):
+            validated_data.pop('password', None)
+
+        return super().update(instance, validated_data)
 
 
 # Enhanced Hotspot User Serializer

@@ -618,9 +618,12 @@ class DashboardDataService:
                 total_capacity=Sum('max_clients')
             )['total_capacity'] or 0
             
-            current_load = routers.aggregate(
-                current_load=Sum('current_clients')
-            )['current_load'] or 0
+            # Router has no current_clients field; mirror Router.get_active_users_count()
+            # (hotspot_users + pppoe_users active counts) across the whole queryset.
+            current_load = (
+                HotspotUser.objects.filter(router__in=routers, active=True).count() +
+                PPPoEUser.objects.filter(router__in=routers, active=True).count()
+            )
             
             load_percentage = (current_load / total_capacity * 100) if total_capacity > 0 else 0
             

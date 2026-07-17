@@ -3927,6 +3927,7 @@ import {
   CheckCircle, XCircle, Info, Clock, Calendar, User
 } from "lucide-react";
 import { Toaster, toast } from "react-hot-toast";
+import { ACCESS_TOKEN } from "../../constants/index";
 
 // Custom Hooks
 import { useRouterManagement } from "./components/hooks/useRouterManagement";
@@ -4360,7 +4361,8 @@ const RouterManagement = () => {
       try {
         console.log('🔌 Connecting to network WebSocket...');
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/routers/`);
+        const wsToken = localStorage.getItem(ACCESS_TOKEN);
+        ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/routers/?token=${wsToken}`);
 
         ws.onopen = () => {
           console.log('WebSocket connected');
@@ -4562,6 +4564,7 @@ const RouterManagement = () => {
               onRestart={restartRouter}
               onStatusChange={updateRouterStatus}
               onEdit={(router) => {
+                dispatch({ type: "RESET_ROUTER_FORM" });
                 dispatch({ type: "UPDATE_ROUTER_FORM", payload: router });
                 dispatch({ type: "TOGGLE_MODAL", modal: "editRouter" });
               }}

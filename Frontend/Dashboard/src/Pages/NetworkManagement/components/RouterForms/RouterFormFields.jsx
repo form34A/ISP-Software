@@ -224,7 +224,7 @@ const RouterFormFields = ({
   ];
 
   const generateSSID = () => {
-    const baseName = routerForm.name.replace(/\s+/g, '-');
+    const baseName = String(routerForm.name || '').replace(/\s+/g, '-');
     const ssid = `${baseName}-WiFi`;
     onFormUpdate({ ssid });
   };

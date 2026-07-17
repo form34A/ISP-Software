@@ -2719,8 +2719,8 @@ export const useRouterManagement = () => {
       
       let errorMessage = "Failed to add router. Please try again.";
       
-      if (error.response?.status === 400) {
-        const backendErrors = error.response.data;
+      if (error.status === 400) {
+        const backendErrors = error.details;
         Object.entries(backendErrors).forEach(([field, messages]) => {
           if (Array.isArray(messages)) {
             dispatch({ 
@@ -2750,12 +2750,16 @@ export const useRouterManagement = () => {
     const toastId = toast.loading('Updating router...');
     
     try {
-      const response = await api.safePut(`/api/network_management/routers/${id}/`, state.routerForm);
-      
+      // Don't send an empty/untouched password - only include it if the user typed a new one
+      const { password, ...routerFormWithoutPassword } = state.routerForm;
+      const payload = password ? state.routerForm : routerFormWithoutPassword;
+
+      const response = await api.safePut(`/api/network_management/routers/${id}/`, payload);
+
       if (!response || !response.id) {
         throw new Error("Invalid response from server");
       }
-      
+
       dispatch({ type: "UPDATE_ROUTER", payload: { id, data: response } });
       dispatch({ type: "TOGGLE_MODAL", modal: "editRouter" });
       dispatch({ type: "RESET_ERRORS" });
@@ -2776,8 +2780,8 @@ export const useRouterManagement = () => {
       console.error("Error updating router:", error);
       
       let errorMessage = "Failed to update router. Please try again.";
-      
-      if (error.response?.status === 404) {
+
+      if (error.status === 404) {
         errorMessage = "Router not found. It may have been deleted.";
       }
       

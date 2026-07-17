@@ -495,7 +495,8 @@ class HotspotUserDetailView(APIView):
                     router.ip,
                     username=router.username,
                     password=router.password,
-                    port=router.port
+                    port=router.port,
+                    plaintext_login=True
                 )
                 api = api_pool.get_api()
                 active = api.get_resource("/ip/hotspot/active").get(mac_address=user.mac.lower())
@@ -591,7 +592,8 @@ class PPPoEUserDetailView(APIView):
                     router.ip,
                     username=router.username,
                     password=router.password,
-                    port=router.port
+                    port=router.port,
+                    plaintext_login=True
                 )
                 api = api_pool.get_api()
                 pppoe_secret = api.get_resource("/ppp/secret")

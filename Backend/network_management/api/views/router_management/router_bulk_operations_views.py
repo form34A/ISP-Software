@@ -274,10 +274,11 @@ class BulkOperationsView(APIView):
                     username=router.username,
                     password=router.password,
                     port=router.port,
+                    plaintext_login=True,
                     timeout=10
                 )
                 api = api_pool.get_api()
-                
+
                 # System resource metrics
                 system_list = api.get_resource("/system/resource").get()
                 system = system_list[0] if system_list else {}
@@ -350,6 +351,7 @@ class BulkOperationsView(APIView):
                     username=router.username,
                     password=router.password,
                     port=router.port,
+                    plaintext_login=True,
                     timeout=5
                 )
                 api = api_pool.get_api()
@@ -420,13 +422,14 @@ class BulkOperationsView(APIView):
                     username=router.username,
                     password=router.password,
                     port=router.port,
+                    plaintext_login=True,
                     timeout=5
                 )
                 api = api_pool.get_api()
                 system_list = api.get_resource("/system/resource").get()
                 system = system_list[0] if system_list else {}
                 api_pool.disconnect()
-                
+
                 return {
                     'cpu_load': system.get('cpu-load', '0'),
                     'uptime': system.get('uptime', '0'),
@@ -681,6 +684,7 @@ class BulkOperationsView(APIView):
                     username=router.username,
                     password=router.password,
                     port=router.port,
+                    plaintext_login=True,
                     timeout=15
                 )
                 api = api_pool.get_api()
@@ -722,10 +726,11 @@ class BulkOperationsView(APIView):
                     router.ip,
                     username=router.username,
                     password=router.password,
-                    port=router.port
+                    port=router.port,
+                    plaintext_login=True
                 )
                 api = api_pool.get_api()
-                
+
                 export_result = api.get_resource("/system").call("backup", {
                     "name": f"backup_{router.name}_{timezone.now().strftime('%Y%m%d_%H%M%S')}"
                 })
@@ -752,10 +757,11 @@ class BulkOperationsView(APIView):
                     router.ip,
                     username=router.username,
                     password=router.password,
-                    port=router.port
+                    port=router.port,
+                    plaintext_login=True
                 )
                 api = api_pool.get_api()
-                
+
                 system_resource = api.get_resource("/system/resource").get()
                 if system_resource:
                     current_version = system_resource[0].get('version', '')

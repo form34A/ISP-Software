@@ -275,6 +275,7 @@ numpy==2.3.2
 
 # Server
 gunicorn==23.0.0
+uvicorn[standard]==0.34.0
 
 # Dev / Debug
 django-debug-toolbar==4.2.0
