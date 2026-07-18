@@ -392,19 +392,24 @@ import { getHealthColor } from "../../utils/networkUtils";
 import { useNetworkData } from "../hooks/useNetworkData";
 import CustomButton from "../Common/CustomButton";
 
-const PerformanceMetrics = ({ 
+// Stable reference so useNetworkData's fetchInitialData useCallback doesn't
+// get a new identity every render (a fresh [] literal here caused an
+// infinite fetch loop against the backend).
+const EMPTY_ROUTERS = [];
+
+const PerformanceMetrics = ({
   activeRouter,
-  theme = "light" 
+  theme = "light",
+  routerStats = {},
+  systemMetrics = {}
 }) => {
   const themeClasses = getThemeClasses(theme);
-  const { 
-    routerStats, 
-    historicalData, 
-    isLoading, 
-    error, 
-    refreshData,
-    webSocketConnected 
-  } = useNetworkData([], activeRouter?.id);
+  const {
+    isLoading,
+    error,
+    refresh: refreshData,
+    webSocketConnected
+  } = useNetworkData(EMPTY_ROUTERS, activeRouter?.id);
 
   const [localLoading, setLocalLoading] = useState(false);
 
@@ -446,9 +451,13 @@ const PerformanceMetrics = ({
     }
   };
 
-  // Extract current and historical data from backend response
-  const currentStats = routerStats?.latest || {};
-  const history = routerStats?.history || {};
+  // Extract current and historical data from the parent's REST-sourced
+  // routerStats (keyed by router id), populated by RouterManagement.jsx's
+  // fetchRouterStats() poll against /routers/{id}/stats/ every 15s — this
+  // is real data whether or not either WebSocket is connected.
+  const activeRouterStats = routerStats?.[activeRouter?.id] || {};
+  const currentStats = activeRouterStats.latest || {};
+  const history = activeRouterStats.history || {};
   
   // Calculate previous values from historical data
   const getPreviousValue = (metricKey) => {
@@ -759,8 +768,8 @@ const PerformanceMetrics = ({
                          activeRouter.type === "ubiquiti" ? "UniFi Controller" : 
                          "Router Management System"}
             </p>
-            {routerStats?.latest?.timestamp && (
-              <p>Last updated: {new Date(routerStats.latest.timestamp).toLocaleTimeString()}</p>
+            {currentStats?.timestamp && (
+              <p>Last updated: {new Date(currentStats.timestamp).toLocaleTimeString()}</p>
             )}
           </div>
         </>

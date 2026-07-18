@@ -331,6 +331,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../../../context/AuthContext'
 import api from '../../../../api'
 import { calculatePerformanceMetrics } from '../../utils/networkUtils';
+import { ACCESS_TOKEN } from '../../../../constants/index';
 
 class WebSocketManager {
   constructor(url, onMessage, onOpen, onClose) {
@@ -425,12 +426,13 @@ export const useNetworkData = (initialRouters = [], activeRouterId = null) => {
 
   // Correct WebSocket URL — works in dev + prod
   const getWebSocketUrl = useCallback(() => {
+    const token = localStorage.getItem(ACCESS_TOKEN);
     if (import.meta.env.PROD) {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      return `${protocol}//${window.location.host}/ws/routers/`;
+      return `${protocol}//${window.location.host}/ws/routers/?token=${token}`;
     }
     // Dev: backend on 8000, frontend on 5173
-    return 'ws://localhost:8000/ws/routers/';
+    return `ws://localhost:8000/ws/routers/?token=${token}`;
   }, []);
 
   // Fetch initial data using your centralized api.js (handles auth, 401, retries, cache)
@@ -462,16 +464,6 @@ export const useNetworkData = (initialRouters = [], activeRouterId = null) => {
         ...metrics,
         lastUpdate: new Date(),
       }));
-
-      // Optional: fetch active router detailed stats
-      if (activeRouterId) {
-        try {
-          const stats = await api.safeGet(`/api/network_management/routers/${activeRouterId}/status/`);
-          setRouterStats(prev => ({ ...prev, [activeRouterId]: stats }));
-        } catch (err) {
-          console.warn('Failed to load active router stats (non-critical)');
-        }
-      }
     } catch (err) {
       // api.js already handles 401 → logout + redirect
       // We just show user-friendly message

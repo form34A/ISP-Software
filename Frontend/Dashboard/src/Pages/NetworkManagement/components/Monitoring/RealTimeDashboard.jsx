@@ -320,9 +320,19 @@ import { useNetworkData } from '../hooks/useNetworkData';
 import { formatTimeSince, getHealthColor } from '../../utils/networkUtils';
 import { getHealthIcon } from '../../utils/iconUtils';
 
-const RealTimeDashboard = ({ theme = "light", routers = [] }) => {
+const RealTimeDashboard = ({
+  theme = "light",
+  routers = [],
+  realTimeData,
+  webSocketConnected: parentWebSocketConnected = false
+}) => {
   const themeClasses = getThemeClasses(theme);
-  const { networkData, webSocketConnected, isLoading, refreshData } = useNetworkData(routers);
+  const { networkData, webSocketConnected: hookWebSocketConnected, isLoading, refresh: refreshData } = useNetworkData(routers);
+  // Either socket being live counts as "connected" — RouterManagement.jsx's
+  // own /ws/routers/ connection (parentWebSocketConnected) and this
+  // component's independent useNetworkData() connection are both real,
+  // authenticated connections after the JWT-over-WS fix.
+  const webSocketConnected = parentWebSocketConnected || hookWebSocketConnected;
   const [recentAlerts, setRecentAlerts] = useState([]);
   const [systemHealth, setSystemHealth] = useState({
     connectedRouters: 0,

@@ -9,6 +9,7 @@ This module provides API views for router monitoring, statistics, and health che
 import logging
 import requests
 from routeros_api import RouterOsApiPool
+from routeros_api.exceptions import RouterOsApiConnectionError, RouterOsApiCommunicationError
 
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
@@ -113,10 +114,14 @@ class RouterStatsView(APIView):
                 history["timestamps"] = [s.timestamp.strftime("%H:%M:%S") for s in stats]
 
                 api_pool.disconnect()
-                
+
+                router.connection_status = 'connected'
+                router.last_seen = timezone.now()
+                router.save(update_fields=['connection_status', 'last_seen'])
+
                 response_data = {"latest": latest_stats, "history": history}
                 cache.set(cache_key, response_data, 60)
-                
+
                 return Response(response_data)
 
             elif router.type == "ubiquiti":
@@ -151,15 +156,32 @@ class RouterStatsView(APIView):
                     connected_clients_count=latest_stats["clients"],
                     **{k: v for k, v in latest_stats.items() if k != "clients"}
                 )
+
+                if response is not None and response.status_code == 200:
+                    router.connection_status = 'connected'
+                    router.last_seen = timezone.now()
+                    router.save(update_fields=['connection_status', 'last_seen'])
+                else:
+                    router.connection_status = 'disconnected'
+                    router.save(update_fields=['connection_status'])
+
                 response_data = {"latest": latest_stats, "history": {}}
                 cache.set(cache_key, response_data, 60)
-                
+
                 return Response(response_data)
 
             return Response({"error": "Stats not supported for this router type"}, status=status.HTTP_400_BAD_REQUEST)
 
+        except (RouterOsApiConnectionError, RouterOsApiCommunicationError) as e:
+            logger.exception("Router communication error getting stats")
+            router.connection_status = 'disconnected'
+            router.save(update_fields=['connection_status'])
+            return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+
         except Exception as e:
             logger.exception("Error getting router stats")
+            router.connection_status = 'disconnected'
+            router.save(update_fields=['connection_status'])
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
