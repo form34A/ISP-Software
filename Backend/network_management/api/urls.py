@@ -796,6 +796,9 @@ from network_management.api.views.bandwidth_allocation_view import (
 # WAN Congestion Monitoring Views
 from network_management.api.views.wan_congestion_view import WanCongestionView
 
+# Live Sessions View (read-only /ppp/active + /ip/hotspot/active)
+from network_management.api.views.live_sessions_view import LiveSessionsView
+
 # IP Address Management Views
 from network_management.api.views.ip_address_view import (
     IPAddressListView, 
@@ -845,6 +848,7 @@ urlpatterns = [
     path("routers/<int:pk>/reboot/", RouterRebootView.as_view(), name="router-reboot"),
     path("routers/<int:pk>/health-check/", RouterHealthCheckView.as_view(), name="router-health-check"),
     path("routers/<int:pk>/system-metrics/", HealthMonitoringView.as_view(), name="router-system-metrics"),
+    path("routers/<int:pk>/live-sessions/", LiveSessionsView.as_view(), name="router-live-sessions"),
     path("health-monitoring/", HealthMonitoringView.as_view(), name="health-monitoring"),
     
     # User Management
