@@ -1171,6 +1171,10 @@ const BandwidthAllocation = () => {
   const [qosProfiles, setQosProfiles] = useState([]);
   const [plans, setPlans] = useState([]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [wanCongestion, setWanCongestion] = useState({ router_id: null, interface: '', window_hours: 24, buckets: [] });
+  const [wanCongestionLoading, setWanCongestionLoading] = useState(true);
+  const [wanCongestionError, setWanCongestionError] = useState("");
+  const [wanWindowHours, setWanWindowHours] = useState(24);
 
   // Theme-based styling variables
   const containerClass = useMemo(() => 
@@ -1287,16 +1291,41 @@ const BandwidthAllocation = () => {
     }
   }, []);
 
+  const fetchWanCongestion = useCallback(async () => {
+    setWanCongestionLoading(true);
+    try {
+      const response = await api.get("/api/network_management/wan-congestion/", {
+        params: { hours: wanWindowHours }
+      });
+      setWanCongestion(response.data);
+      setWanCongestionError("");
+    } catch (error) {
+      console.error("Error fetching WAN congestion data:", error);
+      setWanCongestionError(error.response?.data?.error || "Failed to fetch WAN congestion data");
+    } finally {
+      setWanCongestionLoading(false);
+    }
+  }, [wanWindowHours]);
+
   // Effect for initial data loading and periodic updates
   useEffect(() => {
     fetchData();
     fetchStats();
     fetchQosProfiles();
     fetchPlans();
-    
+
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, [fetchData, fetchStats, fetchQosProfiles, fetchPlans]);
+
+  // WAN congestion polls on its own effect (same 30s cadence as the per-user
+  // data above) so changing the time-window selector only refetches this
+  // section, not the whole page's allocations/stats/plans.
+  useEffect(() => {
+    fetchWanCongestion();
+    const interval = setInterval(fetchWanCongestion, 30000);
+    return () => clearInterval(interval);
+  }, [fetchWanCongestion]);
 
   // Algorithm for updating bandwidth allocation
   const updateBandwidth = useCallback(async (userId, deviceId, newAllocation, newQos) => {
@@ -1532,6 +1561,157 @@ const BandwidthAllocation = () => {
     }
   }), [theme]);
 
+  // WAN congestion chart data - buckets are already 10-min aggregates from
+  // the backend; null values (no reading in that bucket) are left as null so
+  // spanGaps: false renders them as gaps instead of misleading zeros.
+  const wanChartData = useMemo(() => {
+    const buckets = wanCongestion.buckets || [];
+    const labels = buckets.map(b =>
+      new Date(b.bucket_start).toLocaleString([], {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      })
+    );
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: "Download Peak (Mbps)",
+          data: buckets.map(b => b.down_peak_mbps),
+          borderColor: 'rgba(99, 102, 241, 1)',
+          backgroundColor: 'rgba(99, 102, 241, 0.1)',
+          yAxisID: 'y',
+          spanGaps: false,
+          tension: 0.3,
+          pointRadius: 2,
+        },
+        {
+          label: "Upload Peak (Mbps)",
+          data: buckets.map(b => b.up_peak_mbps),
+          borderColor: 'rgba(16, 185, 129, 1)',
+          backgroundColor: 'rgba(16, 185, 129, 0.1)',
+          yAxisID: 'y',
+          spanGaps: false,
+          tension: 0.3,
+          pointRadius: 2,
+        },
+        {
+          label: "Latency Max (ms)",
+          data: buckets.map(b => b.latency_max_ms),
+          borderColor: 'rgba(244, 63, 94, 1)',
+          backgroundColor: 'rgba(244, 63, 94, 0.1)',
+          yAxisID: 'y1',
+          spanGaps: false,
+          tension: 0.3,
+          pointRadius: 2,
+          borderDash: [4, 3],
+        },
+        {
+          label: "Packet Loss (%)",
+          // Only plot a marker where loss actually happened - a 0% bucket
+          // renders as a gap here, same convention as the null-metric buckets.
+          data: buckets.map(b => (b.loss_max_pct && b.loss_max_pct > 0) ? b.loss_max_pct : null),
+          borderColor: 'rgba(234, 179, 8, 1)',
+          backgroundColor: 'rgba(234, 179, 8, 1)',
+          yAxisID: 'y2',
+          spanGaps: false,
+          showLine: false,
+          pointStyle: 'triangle',
+          pointRadius: 6,
+        }
+      ]
+    };
+  }, [wanCongestion]);
+
+  const wanChartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: "bottom",
+        labels: {
+          color: theme === "dark" ? "#F9FAFB" : "#1F2937",
+          usePointStyle: true,
+          padding: 20
+        }
+      },
+      title: {
+        display: true,
+        text: "Starlink WAN - Throughput, Latency & Loss",
+        color: theme === "dark" ? "#F9FAFB" : "#1F2937",
+        font: { size: 16 }
+      },
+      tooltip: {
+        backgroundColor: theme === "dark" ? "#1f2937" : "#fff",
+        titleColor: theme === "dark" ? "#F9FAFB" : "#1F2937",
+        bodyColor: theme === "dark" ? "#F9FAFB" : "#1F2937",
+        usePointStyle: true,
+        borderColor: theme === "dark" ? "#374151" : "#e5e7eb",
+        borderWidth: 1,
+        callbacks: {
+          label: (context) => {
+            if (context.dataset.label === "Packet Loss (%)") {
+              return `Packet Loss: ${context.parsed.y}%`;
+            }
+            return `${context.dataset.label}: ${context.parsed.y}`;
+          }
+        }
+      }
+    },
+    scales: {
+      y: {
+        type: 'linear',
+        position: 'left',
+        beginAtZero: true,
+        title: {
+          display: true,
+          text: "Mbps",
+          color: theme === "dark" ? "#D1D5DB" : "#6B7280"
+        },
+        grid: {
+          color: theme === "dark" ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+        },
+        ticks: {
+          color: theme === "dark" ? "#D1D5DB" : "#6B7280"
+        }
+      },
+      y1: {
+        type: 'linear',
+        position: 'right',
+        beginAtZero: true,
+        title: {
+          display: true,
+          text: "Latency (ms)",
+          color: theme === "dark" ? "#D1D5DB" : "#6B7280"
+        },
+        grid: {
+          drawOnChartArea: false
+        },
+        ticks: {
+          color: theme === "dark" ? "#D1D5DB" : "#6B7280"
+        }
+      },
+      y2: {
+        // Hidden scale, only used to position the packet-loss markers
+        // (0-100%) without visually mixing that unit with the ms axis.
+        type: 'linear',
+        min: 0,
+        max: 100,
+        display: false
+      },
+      x: {
+        grid: {
+          color: theme === "dark" ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+        },
+        ticks: {
+          color: theme === "dark" ? "#D1D5DB" : "#6B7280",
+          maxRotation: 45,
+          minRotation: 45
+        }
+      }
+    }
+  }), [theme]);
+
   // Algorithm for QoS options based on plan category
   const getAllowedQosOptions = useCallback((category) => {
     const allowedPriorities = {
@@ -1722,6 +1902,59 @@ const BandwidthAllocation = () => {
               <Line data={chartData.line} options={chartOptions} />
             )}
           </motion.div>
+        )}
+      </motion.section>
+
+      {/* WAN Congestion Section */}
+      <motion.section
+        className={`${cardClass} p-6 mb-6 transition-colors duration-300`}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: 0.25 }}
+      >
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+          <h2 className="text-lg font-semibold flex items-center">
+            <Activity className={`w-5 h-5 mr-2 ${theme === "dark" ? "text-indigo-400" : "text-indigo-600"}`} />
+            WAN Congestion (Starlink)
+          </h2>
+
+          <div className="flex flex-wrap gap-2">
+            <select
+              value={wanWindowHours}
+              onChange={(e) => setWanWindowHours(Number(e.target.value))}
+              className={`p-2 rounded-lg border text-sm ${inputClass} transition-colors duration-300`}
+              aria-label="Select WAN congestion time window"
+            >
+              <option value={6}>Last 6h</option>
+              <option value={24}>Last 24h</option>
+              <option value={168}>Last 7d</option>
+            </select>
+          </div>
+        </div>
+
+        {wanCongestionLoading ? (
+          <div className="flex justify-center py-8">
+            <ThreeDots
+              color={theme === "dark" ? "#6366F1" : "#4F46E5"}
+              height={50}
+              width={50}
+              aria-label="Loading WAN congestion data"
+            />
+          </div>
+        ) : wanCongestionError ? (
+          <div className={`text-center py-8 flex flex-col items-center ${textSecondaryClass}`}>
+            <AlertTriangle className="w-8 h-8 mb-2" />
+            <p>{wanCongestionError}</p>
+          </div>
+        ) : wanChartData.labels.length === 0 ? (
+          <div className={`text-center py-8 flex flex-col items-center ${textSecondaryClass}`}>
+            <AlertTriangle className="w-8 h-8 mb-2" />
+            <p>No WAN congestion data for this window yet</p>
+          </div>
+        ) : (
+          <div className="h-64 sm:h-80">
+            <Line data={wanChartData} options={wanChartOptions} />
+          </div>
         )}
       </motion.section>
 

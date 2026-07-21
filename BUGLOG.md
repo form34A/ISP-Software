@@ -81,6 +81,11 @@
 - **Noted, not a regression:** this backend has `SECURE_SSL_REDIRECT=True` and expects `X-Forwarded-Proto: https` from a fronting reverse proxy — hitting any endpoint directly over plain HTTP (e.g. `curl http://127.0.0.1:8090/...` with no proxy in front) 301s to `https://`. Pre-existing production config, applies to every endpoint, not specific to this one; testing locally requires adding that header to simulate the real proxy.
 - **Status:** Fixed/shipped. Endpoint is additive and read-only; no frontend consumes it yet (Stage 4).
 
+### Stage 4 — WAN congestion chart on the Bandwidth page (2026-07-21)
+- **Context:** `BandwidthAllocation.jsx` (`Frontend/Dashboard/src/Pages/NetworkManagement/`) now has a new "WAN Congestion (Starlink)" section below the existing per-user chart, polling `GET /api/network_management/wan-congestion/?hours=<window>` on its own 30s-interval effect (isolated from the page's existing allocations/stats/plans effect so the new 6h/24h/7d window selector only refetches this section). Reuses the page's existing `react-chartjs-2`/`api` (axios, token-interceptor)/card-styling conventions exactly - no new chart lib, fetch helper, or styling system introduced.
+- **Chart design notes:** `down_peak_mbps`/`up_peak_mbps` on the left Mbps axis, `latency_max_ms` on the right ms axis, `packet_loss_pct` plotted as distinct triangle markers on a third *hidden* 0-100 axis (kept off the ms axis so loss% and latency ms don't share a visual scale). `spanGaps: false` throughout, matching the backend's null-means-no-reading convention (not zero).
+- **Status:** Fixed/shipped. Deployed via `nginx/Dockerfile` rebuild (`surfzone_web` recreated).
+
 ## Future / Architecture
 
 ### Multi-tenant SaaS (white-label per-ISP) — deferred, months out
