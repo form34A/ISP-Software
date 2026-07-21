@@ -64,6 +64,11 @@
 - **Fix:** `PerformanceMetrics.jsx` now passes a module-level `EMPTY_ROUTERS` constant instead of an inline `[]`, giving `initialRouters` a stable identity across renders and breaking the loop. The dead `/status/` fetch block in `useNetworkData.js`'s `fetchInitialData` was removed entirely (unused endpoint, unused result).
 - **Status:** Fixed, deployed to production (`surfzone_web` rebuilt).
 
+### Stage A — DRF default permission hardened to `IsAuthenticated` (2026-07-21)
+- **Context:** Pre-launch API authorization audit. Every view already sets its own permission class explicitly, so the DRF-wide default was pure defense-in-depth, not a behavior change.
+- **Fix:** `Backend/surfzone_logic/settings.py` `REST_FRAMEWORK['DEFAULT_PERMISSION_CLASSES']` changed from `rest_framework.permissions.IsAuthenticatedOrReadOnly` → `rest_framework.permissions.IsAuthenticated`.
+- **Status:** Fixed, deployed to production (`surfzone_backend` restarted; bind-mounted, no rebuild needed). Stages B (admin-gating) and the `debug_signup` review are separate, later work.
+
 ## Future / Architecture
 
 ### Multi-tenant SaaS (white-label per-ISP) — deferred, months out
