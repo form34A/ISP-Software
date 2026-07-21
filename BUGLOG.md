@@ -75,6 +75,12 @@
 - **Fix:** Reordered `handle()` so `/ping` runs first, then the interface counters are read and the row saved immediately after, back-to-back — so `timestamp` sits right next to the counter read with no ping delay in between.
 - **Status:** Fixed, verified via two manual `sample_wan` runs ~95s apart: stored `interval_seconds` (95.368708s) matched the true wall-clock gap between row timestamps (95.369606s) to within ~0.001s. Not yet scheduled via cron (Stage 1 scope only).
 
+### Stage 3 — WAN congestion read endpoint (`GET /api/network_management/wan-congestion/`) (2026-07-21)
+- **Context:** New read-only, admin-gated (`IsAuthenticated`, `IsAdminUser`) view (`network_management/api/views/wan_congestion_view.py`) that buckets `WanSample` rows (Stage 1/2) into 10-minute windows for charting, floored in Python rather than relying on MySQL date-trunc/timezone behavior. `router_id`/`interface` default resolution mirrors `sample_wan`'s.
+- **Verified live:** `curl` against the real path with a minted JWT (`RefreshToken.for_user()`) returned correctly bucketed JSON from live cron-collected data; the same request with no token returned `401` (`"Authentication credentials were not provided."`), confirming the permission gate.
+- **Noted, not a regression:** this backend has `SECURE_SSL_REDIRECT=True` and expects `X-Forwarded-Proto: https` from a fronting reverse proxy — hitting any endpoint directly over plain HTTP (e.g. `curl http://127.0.0.1:8090/...` with no proxy in front) 301s to `https://`. Pre-existing production config, applies to every endpoint, not specific to this one; testing locally requires adding that header to simulate the real proxy.
+- **Status:** Fixed/shipped. Endpoint is additive and read-only; no frontend consumes it yet (Stage 4).
+
 ## Future / Architecture
 
 ### Multi-tenant SaaS (white-label per-ISP) — deferred, months out

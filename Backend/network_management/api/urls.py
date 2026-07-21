@@ -787,11 +787,14 @@ from network_management.api.views.router_management.router_audit_views import (
 
 # Bandwidth Management Views
 from network_management.api.views.bandwidth_allocation_view import (
-    BandwidthAllocationListView, 
+    BandwidthAllocationListView,
     BandwidthAllocationDetailView,
-    QoSProfileListView, 
+    QoSProfileListView,
     BandwidthUsageStatsView
 )
+
+# WAN Congestion Monitoring Views
+from network_management.api.views.wan_congestion_view import WanCongestionView
 
 # IP Address Management Views
 from network_management.api.views.ip_address_view import (
@@ -887,6 +890,11 @@ urlpatterns = [
     path("allocations/<int:pk>/", BandwidthAllocationDetailView.as_view(), name="bandwidth-allocation-detail"),
     path("qos-profiles/", QoSProfileListView.as_view(), name="qos-profile-list"),
     path("usage-stats/", BandwidthUsageStatsView.as_view(), name="bandwidth-usage-stats"),
+
+    # =========================================================================
+    # WAN CONGESTION MONITORING API ENDPOINTS
+    # =========================================================================
+    path("wan-congestion/", WanCongestionView.as_view(), name="wan-congestion"),
 
     # =========================================================================
     # IP ADDRESS MANAGEMENT API ENDPOINTS
