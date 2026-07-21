@@ -86,6 +86,13 @@
 - **Chart design notes:** `down_peak_mbps`/`up_peak_mbps` on the left Mbps axis, `latency_max_ms` on the right ms axis, `packet_loss_pct` plotted as distinct triangle markers on a third *hidden* 0-100 axis (kept off the ms axis so loss% and latency ms don't share a visual scale). `spanGaps: false` throughout, matching the backend's null-means-no-reading convention (not zero).
 - **Status:** Fixed/shipped. Deployed via `nginx/Dockerfile` rebuild (`surfzone_web` recreated).
 
+### Diagnostics page — bulk response-shape mismatch + broken speed-test polling (2026-07-21)
+- **Symptom:** The "Run Diagnostics" bulk button on `NetworkDiagnostics.jsx` always failed client-side with "Invalid diagnostics response," and "Run Speed Test" always failed with "Invalid speed test response" — in both cases even though the backend actually ran the tests and (for the bulk case) saved real results to the DB.
+- **Root cause:** `DiagnosticTestBulkView.post` (`network_diagnostics_views.py`) returns `{completed_tests: [...], errors: [...]}` (an object), but the frontend guarded on `Array.isArray(response.data)`, which is always `false` for an object. Separately, `DiagnosticTestListView.post` (used for the single speed test) starts the test in a background thread and returns `202` immediately with `status='running'`, `result=null` — before the thread finishes — but the frontend read `response.data.result.speed_test` synchronously off that same response.
+- **Fix:** bulk handler now reads `response.data.completed_tests` (and toasts a warning naming how many tests failed if `response.data.errors` is non-empty, without blocking render of the ones that succeeded). Added a new read-only `DiagnosticTestDetailView` (`GET /api/network_management/tests/<id>/`, `IsAuthenticated`, 404 on missing pk) so the frontend can poll a single test by id; `runSpeedTest` now reads the new test's `id` off the `202` response and polls the detail endpoint every 3s (90s timeout) until `status !== 'running'`, applying the existing success/error field-mapping. Poll is cancelled on unmount or on a fresh speed-test run via a ref-based cancellation token, so no state updates land after unmount.
+- **Files:** `network_management/api/views/network_diagnostics_views.py`, `network_management/api/urls.py`, `Frontend/Dashboard/src/Pages/NetworkManagement/NetworkDiagnostics.jsx`.
+- **Status:** Fixed; deploying via backend restart (new detail endpoint) + `surfzone_web` rebuild in this same change window.
+
 ## Future / Architecture
 
 ### Multi-tenant SaaS (white-label per-ISP) — deferred, months out

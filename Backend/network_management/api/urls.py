@@ -806,8 +806,9 @@ from network_management.api.views.ip_address_view import (
 
 # Network Diagnostics Views
 from network_management.api.views.network_diagnostics_views import (
-    DiagnosticTestListView, 
-    DiagnosticTestBulkView, 
+    DiagnosticTestListView,
+    DiagnosticTestDetailView,
+    DiagnosticTestBulkView,
     SpeedTestHistoryView
 )
 
@@ -908,6 +909,7 @@ urlpatterns = [
     # NETWORK DIAGNOSTICS API ENDPOINTS
     # =========================================================================
     path("tests/", DiagnosticTestListView.as_view(), name="diagnostic-test-list"),
+    path("tests/<int:pk>/", DiagnosticTestDetailView.as_view(), name="diagnostic-test-detail"),
     path("tests/bulk/", DiagnosticTestBulkView.as_view(), name="diagnostic-test-bulk"),
     path("speed-test-history/", SpeedTestHistoryView.as_view(), name="speed-test-history"),
     

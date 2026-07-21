@@ -988,6 +988,14 @@ class DiagnosticTestListView(APIView):
             connection_type=speed_data.get('connection_type', '')
         )
 
+class DiagnosticTestDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        test = get_object_or_404(DiagnosticTest.objects.select_related('router', 'client_ip'), pk=pk)
+        serializer = DiagnosticTestSerializer(test)
+        return Response(serializer.data)
+
 class DiagnosticTestBulkView(APIView):
     permission_classes = [IsAuthenticated]
 

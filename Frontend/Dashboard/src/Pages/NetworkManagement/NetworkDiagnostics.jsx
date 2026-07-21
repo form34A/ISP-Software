@@ -1022,7 +1022,7 @@
 
 
 // src/components/NetworkManagement/NetworkDiagnostics.jsx
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Activity, Wifi, Server, Download, Upload,
   Clock, AlertCircle, CheckCircle, XCircle,
@@ -1072,6 +1072,7 @@ const NetworkDiagnostics = ({ routerId: propRouterId }) => {
   const [isTargetValid, setIsTargetValid] = useState(true);
   const [routers, setRouters] = useState([]);
   const [selectedRouterId, setSelectedRouterId] = useState(propRouterId || '');
+  const speedTestPollRef = useRef(null);
   const { theme } = useTheme();
 
   // Theme-based styling variables
@@ -1152,6 +1153,15 @@ const NetworkDiagnostics = ({ routerId: propRouterId }) => {
     }
   }, [clientIp, fetchHistoricalData]);
 
+  useEffect(() => {
+    return () => {
+      if (speedTestPollRef.current) {
+        speedTestPollRef.current.cancelled = true;
+        clearTimeout(speedTestPollRef.current.timeoutId);
+      }
+    };
+  }, []);
+
   const runDiagnostics = useCallback(async () => {
     if (!selectedRouterId || isNaN(parseInt(selectedRouterId))) {
       toast.error('Please select a valid router');
@@ -1179,11 +1189,15 @@ const NetworkDiagnostics = ({ routerId: propRouterId }) => {
         client_ip: clientIp,
       });
 
-      if (!response.data || !Array.isArray(response.data)) {
+      if (!response.data || !Array.isArray(response.data.completed_tests)) {
         throw new Error('Invalid diagnostics response');
       }
 
-      const updatedDiagnostics = response.data.reduce((acc, test) => {
+      if (Array.isArray(response.data.errors) && response.data.errors.length > 0) {
+        toast.warning(`${response.data.errors.length} test(s) failed to run`);
+      }
+
+      const updatedDiagnostics = response.data.completed_tests.reduce((acc, test) => {
         const testType = test.test_type === 'health_check' ? 'healthCheck' : test.test_type;
         if (!['ping', 'traceroute', 'healthCheck', 'speedtest', 'dns', 'packetLoss'].includes(testType)) {
           return acc;
@@ -1219,28 +1233,18 @@ const NetworkDiagnostics = ({ routerId: propRouterId }) => {
       return;
     }
 
-    setSpeedTestRunning(true);
-    setIsClientIpValid(true);
-    setDiagnostics(prev => ({
-      ...prev,
-      bandwidth: { ...prev.bandwidth, status: 'running' },
-      clientBandwidth: { ...prev.clientBandwidth, status: 'running' },
-    }));
+    // Cancel any speed test poll already in flight before starting a new one
+    if (speedTestPollRef.current) {
+      speedTestPollRef.current.cancelled = true;
+      clearTimeout(speedTestPollRef.current.timeoutId);
+    }
+    const controller = { cancelled: false, timeoutId: null };
+    speedTestPollRef.current = controller;
 
-    try {
-      const response = await api.post('/api/network_management/tests/', {
-        router_id: parseInt(selectedRouterId),
-        test_type: 'speedtest',
-        target: '',
-        client_ip: clientIp,
-        test_mode: type,
-      });
+    const POLL_INTERVAL_MS = 3000;
+    const POLL_TIMEOUT_MS = 90000;
 
-      if (!response.data?.result?.speed_test) {
-        throw new Error('Invalid speed test response');
-      }
-
-      const speedTest = response.data.result.speed_test;
+    const applySuccess = (speedTest) => {
       setDiagnostics(prev => ({
         ...prev,
         bandwidth: {
@@ -1263,15 +1267,81 @@ const NetworkDiagnostics = ({ routerId: propRouterId }) => {
       }));
       toast.success('Speed test completed');
       fetchHistoricalData();
-    } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Speed test failed';
-      toast.error(errorMessage);
+    };
+
+    const applyError = (errorMessage) => {
+      toast.error(errorMessage || 'Speed test failed');
       setDiagnostics(prev => ({
         ...prev,
         bandwidth: { ...prev.bandwidth, status: 'error' },
         clientBandwidth: { ...prev.clientBandwidth, status: 'error' },
       }));
-    } finally {
+    };
+
+    const pollTest = async (testId, elapsedMs) => {
+      if (controller.cancelled) return;
+
+      if (elapsedMs >= POLL_TIMEOUT_MS) {
+        applyError('Speed test timed out');
+        setSpeedTestRunning(false);
+        return;
+      }
+
+      try {
+        const pollResponse = await api.get(`/api/network_management/tests/${testId}/`);
+        if (controller.cancelled) return;
+
+        const test = pollResponse.data;
+        if (test.status === 'running') {
+          controller.timeoutId = setTimeout(
+            () => pollTest(testId, elapsedMs + POLL_INTERVAL_MS),
+            POLL_INTERVAL_MS
+          );
+          return;
+        }
+
+        if (test.status === 'success' && test.result?.speed_test) {
+          applySuccess(test.result.speed_test);
+        } else {
+          applyError(test.error_message || 'Speed test failed');
+        }
+        setSpeedTestRunning(false);
+      } catch (error) {
+        if (controller.cancelled) return;
+        const errorMessage = error.response?.data?.error || 'Speed test failed';
+        applyError(errorMessage);
+        setSpeedTestRunning(false);
+      }
+    };
+
+    setSpeedTestRunning(true);
+    setIsClientIpValid(true);
+    setDiagnostics(prev => ({
+      ...prev,
+      bandwidth: { ...prev.bandwidth, status: 'running' },
+      clientBandwidth: { ...prev.clientBandwidth, status: 'running' },
+    }));
+
+    try {
+      const response = await api.post('/api/network_management/tests/', {
+        router_id: parseInt(selectedRouterId),
+        test_type: 'speedtest',
+        target: '',
+        client_ip: clientIp,
+        test_mode: type,
+      });
+
+      const testId = response.data?.id;
+      if (!testId) {
+        throw new Error('Invalid speed test response');
+      }
+
+      if (controller.cancelled) return;
+      controller.timeoutId = setTimeout(() => pollTest(testId, 0), POLL_INTERVAL_MS);
+    } catch (error) {
+      if (controller.cancelled) return;
+      const errorMessage = error.response?.data?.error || 'Speed test failed';
+      applyError(errorMessage);
       setSpeedTestRunning(false);
     }
   }, [clientIp, selectedRouterId, fetchHistoricalData]);
