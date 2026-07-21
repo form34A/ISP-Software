@@ -1014,10 +1014,10 @@
 // src/components/NetworkManagement/IPAddressManagement.jsx
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
+import {
   Plus, Edit, Trash2, Search, ChevronDown, ChevronUp,
   Server, HardDrive, Network, Wifi, CheckCircle, XCircle, Clock,
-  AlertCircle, ArrowRight, Download, Upload, Activity, Router
+  AlertCircle, ArrowRight, Download, Upload, Activity, Router, RefreshCw
 } from "lucide-react";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -1034,6 +1034,22 @@ const validateSubnet = (subnet) => {
   return subnet ? subnetRegex.test(subnet) : false;
 };
 
+const EMPTY_LIVE_SESSIONS = {
+  router_id: null,
+  reachable: true,
+  sessions: [],
+  counts: { pppoe: 0, hotspot: 0, total: 0 },
+};
+
+const formatBytes = (bytes) => {
+  if (bytes === null || bytes === undefined || isNaN(bytes)) return '—';
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / Math.pow(1024, exponent);
+  return `${value.toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`;
+};
+
 const IPAddressManagement = ({ routerId: propRouterId }) => {
   const [ipAddresses, setIPAddresses] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -1048,6 +1064,9 @@ const IPAddressManagement = ({ routerId: propRouterId }) => {
   const [routers, setRouters] = useState([]);
   const [selectedRouterId, setSelectedRouterId] = useState(propRouterId || '');
   const [mobileDropdowns, setMobileDropdowns] = useState({});
+  const [liveSessions, setLiveSessions] = useState(EMPTY_LIVE_SESSIONS);
+  const [liveSessionsLoading, setLiveSessionsLoading] = useState(true);
+  const [liveSessionsError, setLiveSessionsError] = useState(null);
 
   const { theme } = useTheme();
 
@@ -1150,6 +1169,34 @@ const IPAddressManagement = ({ routerId: propRouterId }) => {
       fetchIPAddresses();
     }
   }, [fetchIPAddresses, selectedRouterId]);
+
+  const fetchLiveSessions = useCallback(async () => {
+    if (!selectedRouterId || isNaN(parseInt(selectedRouterId))) {
+      setLiveSessions(EMPTY_LIVE_SESSIONS);
+      setLiveSessionsError(null);
+      setLiveSessionsLoading(false);
+      return;
+    }
+
+    try {
+      setLiveSessionsLoading(true);
+      const response = await api.get(`/api/network_management/routers/${selectedRouterId}/live-sessions/`);
+      setLiveSessions(response.data && typeof response.data === 'object' ? response.data : EMPTY_LIVE_SESSIONS);
+      setLiveSessionsError(null);
+    } catch (error) {
+      setLiveSessions(EMPTY_LIVE_SESSIONS);
+      // Background poll - inline message only, no toast spam (same lesson as the Diagnostics chart).
+      setLiveSessionsError(error.response?.data?.error || 'Failed to fetch live sessions');
+    } finally {
+      setLiveSessionsLoading(false);
+    }
+  }, [selectedRouterId]);
+
+  useEffect(() => {
+    fetchLiveSessions();
+    const intervalId = setInterval(fetchLiveSessions, 30000);
+    return () => clearInterval(intervalId);
+  }, [fetchLiveSessions]);
 
   const handleSearch = (e) => {
     setSearchTerm(e.target.value);
@@ -1314,6 +1361,17 @@ const IPAddressManagement = ({ routerId: propRouterId }) => {
     return `px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${colors[priority] || (theme === 'dark' ? "bg-gray-800 text-gray-300" : "bg-gray-100 text-gray-800")}`;
   }, [theme]);
 
+  const getSessionTypeColor = useCallback((sessionType) => {
+    const colors = theme === 'dark' ? {
+      pppoe: "bg-indigo-900 text-indigo-300",
+      hotspot: "bg-purple-900 text-purple-300",
+    } : {
+      pppoe: "bg-indigo-100 text-indigo-800",
+      hotspot: "bg-purple-100 text-purple-800",
+    };
+    return `px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${colors[sessionType] || (theme === 'dark' ? "bg-gray-800 text-gray-300" : "bg-gray-100 text-gray-800")}`;
+  }, [theme]);
+
   const timeSince = useCallback((dateString) => {
     if (!dateString) return 'Never';
     const date = new Date(dateString);
@@ -1421,6 +1479,129 @@ const IPAddressManagement = ({ routerId: propRouterId }) => {
 
       {selectedRouterId && !isNaN(parseInt(selectedRouterId)) ? (
         <>
+          <div className={`${cardClass} mb-6 overflow-hidden transition-colors duration-300`}>
+            <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 border-b transition-colors duration-300 ${
+              theme === "dark" ? "border-gray-700" : "border-gray-200"
+            }`}>
+              <div className="flex items-center space-x-3">
+                <Wifi className="w-6 h-6 text-indigo-500" />
+                <div>
+                  <h2 className={`text-lg font-semibold ${theme === "dark" ? "text-white" : "text-gray-800"}`}>
+                    Connected Now
+                  </h2>
+                  <p className={`text-sm ${textSecondaryClass}`}>
+                    {liveSessions.counts.total} connected — {liveSessions.counts.pppoe} PPPoE, {liveSessions.counts.hotspot} Hotspot
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={fetchLiveSessions}
+                disabled={liveSessionsLoading}
+                className={`flex items-center px-3 py-2 rounded-lg text-sm disabled:opacity-50 transition-colors duration-300 ${
+                  theme === "dark"
+                    ? "bg-gray-700 text-white hover:bg-gray-600"
+                    : "bg-gray-200 text-gray-800 hover:bg-gray-300"
+                }`}
+                aria-label="Refresh live sessions"
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${liveSessionsLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            </div>
+
+            {liveSessionsLoading ? (
+              <div className="flex justify-center py-12">
+                <div className={`animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 ${
+                  theme === "dark" ? "border-indigo-500" : "border-indigo-500"
+                }`}></div>
+              </div>
+            ) : liveSessionsError ? (
+              <div className={`text-center py-8 flex flex-col items-center ${textSecondaryClass}`}>
+                <AlertCircle className="w-8 h-8 mb-2 text-red-500" />
+                <p>{liveSessionsError}</p>
+              </div>
+            ) : !liveSessions.reachable ? (
+              <div className={`text-center py-8 flex flex-col items-center ${textSecondaryClass}`}>
+                <AlertCircle className="w-8 h-8 mb-2 text-yellow-500" />
+                <p>Router unreachable — live session data unavailable right now</p>
+              </div>
+            ) : liveSessions.sessions.length === 0 ? (
+              <div className={`text-center py-8 flex flex-col items-center ${textSecondaryClass}`}>
+                <Wifi className="w-8 h-8 mb-2" />
+                <p>No active sessions</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className={`min-w-full divide-y transition-colors duration-300 ${
+                  theme === "dark" ? "divide-gray-700" : "divide-gray-200"
+                }`}>
+                  <thead className={theme === "dark" ? "bg-gray-800/60" : "bg-white/80"}>
+                    <tr>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${theme === "dark" ? "text-gray-300" : "text-gray-500"}`}>
+                        Type
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${theme === "dark" ? "text-gray-300" : "text-gray-500"}`}>
+                        Username
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${theme === "dark" ? "text-gray-300" : "text-gray-500"}`}>
+                        Phone
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${theme === "dark" ? "text-gray-300" : "text-gray-500"}`}>
+                        Expiry
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${theme === "dark" ? "text-gray-300" : "text-gray-500"}`}>
+                        IP Address
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${theme === "dark" ? "text-gray-300" : "text-gray-500"}`}>
+                        MAC
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${theme === "dark" ? "text-gray-300" : "text-gray-500"}`}>
+                        Uptime
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${theme === "dark" ? "text-gray-300" : "text-gray-500"}`}>
+                        Data In / Out
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y transition-colors duration-300 ${
+                    theme === "dark" ? "divide-gray-700" : "divide-gray-200"
+                  }`}>
+                    {liveSessions.sessions.map((session, index) => (
+                      <tr key={`${session.type}-${session.address || 'na'}-${index}`}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={getSessionTypeColor(session.type)}>
+                            {session.type === 'pppoe' ? 'PPPoE' : 'Hotspot'}
+                          </span>
+                        </td>
+                        <td className={`px-6 py-4 whitespace-nowrap text-sm ${theme === "dark" ? "text-white" : "text-gray-800"}`}>
+                          {session.username || '-'}
+                        </td>
+                        <td className={`px-6 py-4 whitespace-nowrap text-sm ${theme === "dark" ? "text-white" : "text-gray-800"}`}>
+                          {session.phone || '-'}
+                        </td>
+                        <td className={`px-6 py-4 whitespace-nowrap text-sm ${theme === "dark" ? "text-white" : "text-gray-800"}`}>
+                          {session.expiry || '-'}
+                        </td>
+                        <td className={`px-6 py-4 whitespace-nowrap text-sm ${theme === "dark" ? "text-white" : "text-gray-800"}`}>
+                          {session.address || '-'}
+                        </td>
+                        <td className={`px-6 py-4 whitespace-nowrap text-sm ${theme === "dark" ? "text-white" : "text-gray-800"}`}>
+                          {session.mac_address || '-'}
+                        </td>
+                        <td className={`px-6 py-4 whitespace-nowrap text-sm ${textSecondaryClass}`}>
+                          {session.uptime || '-'}
+                        </td>
+                        <td className={`px-6 py-4 whitespace-nowrap text-sm ${textSecondaryClass}`}>
+                          {formatBytes(session.bytes_in)} / {formatBytes(session.bytes_out)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           <div className="flex flex-col md:flex-row gap-4 mb-6 transition-colors duration-300">
             <div className="relative flex-1">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
