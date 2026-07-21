@@ -1048,6 +1048,11 @@ const validateDomain = (domain) => {
   return domain ? domainRegex.test(domain) : false;
 };
 
+const EMPTY_HISTORY = {
+  isp: { minute: [], hour: [], day: [], month: [] },
+  client: { minute: [], hour: [], day: [], month: [] },
+};
+
 const NetworkDiagnostics = ({ routerId: propRouterId }) => {
   const [diagnostics, setDiagnostics] = useState({
     ping: { result: null, status: 'idle', target: 'example.com' },
@@ -1058,10 +1063,7 @@ const NetworkDiagnostics = ({ routerId: propRouterId }) => {
     dns: { result: null, status: 'idle', target: 'example.com' },
     packetLoss: { result: null, status: 'idle', target: 'example.com' },
   });
-  const [historicalData, setHistoricalData] = useState({
-    isp: { minute: [], hour: [], day: [], month: [] },
-    client: { minute: [], hour: [], day: [], month: [] },
-  });
+  const [historicalData, setHistoricalData] = useState(EMPTY_HISTORY);
   const [loading, setLoading] = useState(false);
   const [diagnosticsTarget, setDiagnosticsTarget] = useState('example.com');
   const [expandedTest, setExpandedTest] = useState(null);
@@ -1127,7 +1129,7 @@ const NetworkDiagnostics = ({ routerId: propRouterId }) => {
 
   const fetchHistoricalData = useCallback(async () => {
     if (!selectedRouterId || isNaN(parseInt(selectedRouterId)) || !clientIp || !validateIp(clientIp)) {
-      setHistoricalData({ isp: { minute: [], hour: [], day: [], month: [] }, client: { minute: [], hour: [], day: [], month: [] } });
+      setHistoricalData(EMPTY_HISTORY);
       return;
     }
 
@@ -1138,8 +1140,12 @@ const NetworkDiagnostics = ({ routerId: propRouterId }) => {
       }
       setHistoricalData(response.data);
     } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to fetch historical speed data';
-      toast.error(errorMessage);
+      setHistoricalData(EMPTY_HISTORY);
+      // A 404 here just means this router/client IP has no speed test history yet - not a real failure.
+      if (error.response?.status !== 404) {
+        const errorMessage = error.response?.data?.error || 'Failed to fetch historical speed data';
+        toast.error(errorMessage);
+      }
     }
   }, [selectedRouterId, clientIp]);
 
@@ -1384,38 +1390,43 @@ const NetworkDiagnostics = ({ routerId: propRouterId }) => {
     setExpandedTest(prev => (prev === testName ? null : testName));
   }, []);
 
-  const chartData = useMemo(() => ({
-    labels:
-      historicalData.isp[timeFrame]?.length > 0
-        ? historicalData.isp[timeFrame].map(d => new Date(d.timestamp).toLocaleString())
-        : [],
-    datasets: [
-      {
-        label: 'ISP Download',
-        data: historicalData.isp[timeFrame]?.map(d => Number(d.download) || 0) || [],
-        borderColor: 'rgb(75, 192, 192)',
-        tension: 0.1,
-      },
-      {
-        label: 'ISP Upload',
-        data: historicalData.isp[timeFrame]?.map(d => Number(d.upload) || 0) || [],
-        borderColor: 'rgb(255, 99, 132)',
-        tension: 0.1,
-      },
-      {
-        label: 'Client Download',
-        data: historicalData.client[timeFrame]?.map(d => Number(d.download) || 0) || [],
-        borderColor: 'rgb(54, 162, 235)',
-        tension: 0.1,
-      },
-      {
-        label: 'Client Upload',
-        data: historicalData.client[timeFrame]?.map(d => Number(d.upload) || 0) || [],
-        borderColor: 'rgb(255, 206, 86)',
-        tension: 0.1,
-      },
-    ],
-  }), [historicalData, timeFrame]);
+  const chartData = useMemo(() => {
+    const ispData = historicalData?.isp?.[timeFrame] ?? [];
+    const clientData = historicalData?.client?.[timeFrame] ?? [];
+
+    return {
+      labels:
+        ispData.length > 0
+          ? ispData.map(d => new Date(d.timestamp).toLocaleString())
+          : [],
+      datasets: [
+        {
+          label: 'ISP Download',
+          data: ispData.map(d => Number(d.download) || 0),
+          borderColor: 'rgb(75, 192, 192)',
+          tension: 0.1,
+        },
+        {
+          label: 'ISP Upload',
+          data: ispData.map(d => Number(d.upload) || 0),
+          borderColor: 'rgb(255, 99, 132)',
+          tension: 0.1,
+        },
+        {
+          label: 'Client Download',
+          data: clientData.map(d => Number(d.download) || 0),
+          borderColor: 'rgb(54, 162, 235)',
+          tension: 0.1,
+        },
+        {
+          label: 'Client Upload',
+          data: clientData.map(d => Number(d.upload) || 0),
+          borderColor: 'rgb(255, 206, 86)',
+          tension: 0.1,
+        },
+      ],
+    };
+  }, [historicalData, timeFrame]);
 
   const chartOptions = useMemo(() => ({
     responsive: true,
