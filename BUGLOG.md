@@ -69,6 +69,12 @@
 - **Fix:** `Backend/surfzone_logic/settings.py` `REST_FRAMEWORK['DEFAULT_PERMISSION_CLASSES']` changed from `rest_framework.permissions.IsAuthenticatedOrReadOnly` → `rest_framework.permissions.IsAuthenticated`.
 - **Status:** Fixed, deployed to production (`surfzone_backend` restarted; bind-mounted, no rebuild needed). Stages B (admin-gating) and the `debug_signup` review are separate, later work.
 
+### WAN sampler `interval_seconds` inflated by ping duration (2026-07-21)
+- **Symptom:** During Stage 1 manual testing of the new WAN congestion sampler (`sample_wan` management command, `Backend/network_management/management/commands/sample_wan.py`), `interval_seconds` between two consecutive `WanSample` rows for the same interface was consistently ~9-10s shorter than the true wall-clock gap between runs, inflating `down_mbps`/`up_mbps` by roughly one ping's worth of time each cycle (~11% in the first observed test).
+- **Root cause:** `handle()` computed `interval_seconds` (`now() - prev.timestamp`) and read the interface counters *before* issuing the `/ping` probe, but `WanSample.timestamp` is `auto_now_add` and only gets stamped when the row is saved — which happened *after* the ~10s ping (`--ping-count 10`, ~1/s). So every row's saved timestamp already included its own ping delay, understating the next row's computed interval by one ping's duration.
+- **Fix:** Reordered `handle()` so `/ping` runs first, then the interface counters are read and the row saved immediately after, back-to-back — so `timestamp` sits right next to the counter read with no ping delay in between.
+- **Status:** Fixed, verified via two manual `sample_wan` runs ~95s apart: stored `interval_seconds` (95.368708s) matched the true wall-clock gap between row timestamps (95.369606s) to within ~0.001s. Not yet scheduled via cron (Stage 1 scope only).
+
 ## Future / Architecture
 
 ### Multi-tenant SaaS (white-label per-ISP) — deferred, months out
