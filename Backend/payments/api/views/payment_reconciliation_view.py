@@ -1831,7 +1831,7 @@ class PaymentReconciliationView(APIView):
             transactions = TransactionLog.objects.filter(
                 created_at__date__range=[start_date, end_date],
                 status='success'
-            ).select_related('client', 'client__user')
+            ).select_related('client')
             
             # Apply access type filter
             if access_type_filter != 'all':
@@ -1850,7 +1850,7 @@ class PaymentReconciliationView(APIView):
             if search_term:
                 transactions = transactions.filter(
                     Q(transaction_id__icontains=search_term) |
-                    Q(client__user__username__icontains=search_term) |
+                    Q(client__username__icontains=search_term) |
                     Q(payment_method__icontains=search_term) |
                     Q(access_type__icontains=search_term)
                 )

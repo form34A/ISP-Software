@@ -741,7 +741,7 @@ class TransactionLogView(APIView):
             
             # Build optimized query with select_related and prefetch_related
             queryset = TransactionLog.objects.select_related(
-                'client', 'client__user', 'user', 'payment_transaction',
+                'client', 'payment_transaction',
                 'subscription', 'internet_plan'
             ).all()
             
@@ -805,7 +805,7 @@ class TransactionLogView(APIView):
                 queryset = queryset.filter(
                     Q(transaction_id__icontains=search_term) |
                     Q(phone_number__icontains=search_term) |
-                    Q(client__user__username__icontains=search_term) |
+                    Q(client__username__icontains=search_term) |
                     Q(reference_number__icontains=search_term) |
                     Q(internet_plan__name__icontains=search_term)
                 )
@@ -1086,7 +1086,7 @@ class TransactionLogDetailView(APIView):
         """
         try:
             transaction_log = TransactionLog.objects.select_related(
-                'client', 'client__user', 'user', 'payment_transaction',
+                'client', 'payment_transaction',
                 'subscription', 'internet_plan'
             ).get(transaction_id=transaction_id)
             

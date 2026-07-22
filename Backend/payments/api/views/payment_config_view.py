@@ -4765,7 +4765,7 @@ class PaymentVerificationView(APIView):
             elif phone_number and amount:
                 # Look for recent transactions matching phone and amount
                 recent_transactions = Transaction.objects.filter(
-                    client__user__phone_number=phone_number,
+                    client__phone_number=phone_number,
                     amount=amount,
                     created_at__gte=timezone.now() - timedelta(hours=24)
                 ).order_by('-created_at')
