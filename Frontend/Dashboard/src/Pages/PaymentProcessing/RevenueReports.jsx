@@ -1448,7 +1448,11 @@ const RevenueReports = () => {
     setReportsLoading(true);
     try {
       const response = await makeAuthenticatedRequest(api.get, '/api/payments/reports/');
-      setReports(response.data);
+      setReports(
+        Array.isArray(response.data?.results)
+          ? response.data.results
+          : (Array.isArray(response.data) ? response.data : [])
+      );
     } catch (error) {
       console.error('Failed to fetch reports:', error);
     } finally {
