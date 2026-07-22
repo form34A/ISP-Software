@@ -113,6 +113,13 @@
 - **Files:** `Frontend/Dashboard/src/Pages/NetworkManagement/IPAddressManagement.jsx`.
 - **Status:** Fixed/shipped; deploying via `surfzone_web` rebuild in this same change window (frontend-only, no backend changes - Stage 1's endpoint is unchanged).
 
+### Payments: sub-config create-if-missing + partial-update validation (2026-07-22)
+- **Symptom:** Adding a new M-Pesa/PayPal/Bank gateway from the Payment Methods page always failed on the second step — `POST /api/payments/gateways/` succeeded, but the immediate follow-up `PATCH /api/payments/gateways/<id>/mpesa|paypal|bank/` 404'd ("M-Pesa configuration not found" / equivalent), so a gateway could never actually be configured end to end.
+- **Root cause:** `MpesaConfigView.patch` / `PayPalConfigView.patch` / `BankConfigView.patch` (`payment_config_view.py`) resolved the child config via the reverse-OneToOne accessor (`gateway.mpesaconfig` etc.), which raises `DoesNotExist` until a child row exists — and nothing anywhere in the create flow (`PaymentGatewayView.post`) ever created one. Separately, `MpesaConfigSerializer`/`PayPalConfigSerializer`/`BankConfigSerializer.validate()` required every credential field to be present in the *submitted* request body even under `partial=True`, so even a legitimate single-field edit (e.g. re-saving just the passkey) would fail validation.
+- **Fix:** the three `.patch()` handlers now use `<Model>.objects.get_or_create(gateway=gateway)`, creating the child row on first save and reusing it thereafter; the now-unreachable `<Model>.DoesNotExist` except clauses were removed (`PaymentGateway.DoesNotExist` parent-404 handling is unchanged). The three serializers' `validate()` now read each field from the submitted data first, falling back to the existing instance's stored value when a field is absent — so a first-time create (blank get-or-created instance, all fields empty) still requires the full credential set, while editing one field on an already-configured gateway now succeeds.
+- **Files:** `Backend/payments/api/views/payment_config_view.py`, `Backend/payments/serializers/payment_config_serializer.py`.
+- **Status:** Fixed, deployed (`surfzone_backend` restarted). Verified offline inside a `transaction.atomic()` block that was rolled back — no M-Pesa/PayPal/bank network calls made; see verification note below.
+
 ## Future / Architecture
 
 ### Multi-tenant SaaS (white-label per-ISP) — deferred, months out

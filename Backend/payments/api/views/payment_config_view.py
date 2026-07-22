@@ -3935,23 +3935,21 @@ class MpesaConfigView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            mpesa_config = gateway.mpesaconfig
+            mpesa_config, _ = MpesaConfig.objects.get_or_create(gateway=gateway)
             serializer = MpesaConfigSerializer(
-                mpesa_config, 
-                data=request.data, 
+                mpesa_config,
+                data=request.data,
                 partial=True,
                 context={'request': request}
             )
-            
+
             if not serializer.is_valid():
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-                
+
             mpesa_config = serializer.save()
             return Response(MpesaConfigSerializer(mpesa_config).data)
         except PaymentGateway.DoesNotExist:
             return Response({"error": "Gateway not found"}, status=status.HTTP_404_NOT_FOUND)
-        except MpesaConfig.DoesNotExist:
-            return Response({"error": "M-Pesa configuration not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             logger.error(f"Failed to update M-Pesa configuration: {str(e)}", exc_info=True)
             return Response(
@@ -3978,23 +3976,21 @@ class PayPalConfigView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            paypal_config = gateway.paypalconfig
+            paypal_config, _ = PayPalConfig.objects.get_or_create(gateway=gateway)
             serializer = PayPalConfigSerializer(
-                paypal_config, 
-                data=request.data, 
+                paypal_config,
+                data=request.data,
                 partial=True,
                 context={'request': request}
             )
-            
+
             if not serializer.is_valid():
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-                
+
             paypal_config = serializer.save()
             return Response(PayPalConfigSerializer(paypal_config).data)
         except PaymentGateway.DoesNotExist:
             return Response({"error": "Gateway not found"}, status=status.HTTP_404_NOT_FOUND)
-        except PayPalConfig.DoesNotExist:
-            return Response({"error": "PayPal configuration not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             logger.error(f"Failed to update PayPal configuration: {str(e)}", exc_info=True)
             return Response(
@@ -4021,23 +4017,21 @@ class BankConfigView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            bank_config = gateway.bankconfig
+            bank_config, _ = BankConfig.objects.get_or_create(gateway=gateway)
             serializer = BankConfigSerializer(
-                bank_config, 
-                data=request.data, 
+                bank_config,
+                data=request.data,
                 partial=True,
                 context={'request': request}
             )
-            
+
             if not serializer.is_valid():
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-                
+
             bank_config = serializer.save()
             return Response(BankConfigSerializer(bank_config).data)
         except PaymentGateway.DoesNotExist:
             return Response({"error": "Gateway not found"}, status=status.HTTP_404_NOT_FOUND)
-        except BankConfig.DoesNotExist:
-            return Response({"error": "Bank configuration not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             logger.error(f"Failed to update Bank configuration: {str(e)}", exc_info=True)
             return Response(

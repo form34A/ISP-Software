@@ -1330,13 +1330,20 @@ class MpesaConfigSerializer(serializers.ModelSerializer):
         return bool(obj.till_number)
 
     def validate(self, data):
-        if not data.get('paybill_number') and not data.get('till_number'):
+        def effective(field):
+            if field in data:
+                return data[field]
+            return getattr(self.instance, field, None) if self.instance else None
+
+        paybill_number = effective('paybill_number')
+        till_number = effective('till_number')
+        if not paybill_number and not till_number:
             raise serializers.ValidationError("Either paybill number or till number must be set")
-        if data.get('paybill_number') and data.get('till_number'):
+        if paybill_number and till_number:
             raise serializers.ValidationError("Cannot have both paybill and till number")
         required_fields = ['consumer_key', 'consumer_secret', 'passkey', 'callback_url']
         for field in required_fields:
-            if not data.get(field):
+            if not effective(field):
                 raise serializers.ValidationError(f"{field} is required")
         return data
 
@@ -1368,9 +1375,14 @@ class PayPalConfigSerializer(serializers.ModelSerializer):
         return "sandbox" if obj.gateway.sandbox_mode else "production"
 
     def validate(self, data):
+        def effective(field):
+            if field in data:
+                return data[field]
+            return getattr(self.instance, field, None) if self.instance else None
+
         required_fields = ['client_id', 'secret', 'callback_url']
         for field in required_fields:
-            if not data.get(field):
+            if not effective(field):
                 raise serializers.ValidationError(f"{field} is required")
         return data
 
@@ -1411,9 +1423,14 @@ class BankConfigSerializer(serializers.ModelSerializer):
         return dict(BankConfig._meta.get_field('currency').choices).get(obj.currency, obj.currency)
 
     def validate(self, data):
+        def effective(field):
+            if field in data:
+                return data[field]
+            return getattr(self.instance, field, None) if self.instance else None
+
         required_fields = ['bank_name', 'account_name', 'account_number']
         for field in required_fields:
-            if not data.get(field):
+            if not effective(field):
                 raise serializers.ValidationError(f"{field} is required")
         return data
 
