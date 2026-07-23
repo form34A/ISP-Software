@@ -564,7 +564,7 @@ import { FaSpinner } from 'react-icons/fa';
 import { EnhancedSelect, getThemeClasses } from '../ServiceManagement/Shared/components';
 import ClientService from './services/ClientService';
 import ExportService from './services/ExportService';
-import { CLIENT_TIERS, CLIENT_STATUS } from './constants/clientConstants';
+import { CLIENT_TIERS } from './constants/clientConstants';
 
 const ClientActions = ({ client, onUpdate, onRefresh, onDelete, theme }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -572,15 +572,12 @@ const ClientActions = ({ client, onUpdate, onRefresh, onDelete, theme }) => {
   const [showSendMessageModal, setShowSendMessageModal] = useState(false);
   const [showUpdateTierModal, setShowUpdateTierModal] = useState(false);
   const [showResendCredentialsModal, setShowResendCredentialsModal] = useState(false);
-  const [showStatusModal, setShowStatusModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [actionMessage, setActionMessage] = useState('');
   const [actionError, setActionError] = useState('');
   const [messageContent, setMessageContent] = useState('');
   const [selectedTier, setSelectedTier] = useState(client.tier || 'new');
-  const [selectedStatus, setSelectedStatus] = useState(client.status || 'active');
   const [tierReason, setTierReason] = useState('');
-  const [statusReason, setStatusReason] = useState('');
 
   const themeClasses = getThemeClasses(theme);
 
@@ -609,12 +606,6 @@ const ClientActions = ({ client, onUpdate, onRefresh, onDelete, theme }) => {
     label
   }));
 
-  // Status options
-  const statusOptions = Object.entries(CLIENT_STATUS).map(([value, label]) => ({
-    value,
-    label
-  }));
-
   // Update client tier
   const handleUpdateTier = async () => {
     try {
@@ -636,27 +627,6 @@ const ClientActions = ({ client, onUpdate, onRefresh, onDelete, theme }) => {
       }
     } catch (error) {
       setActionError(error.response?.data?.error || 'Failed to update tier');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Update client status
-  const handleUpdateStatus = async () => {
-    try {
-      setIsLoading(true);
-      setActionError('');
-
-      const result = await ClientService.updateClientStatus(client.id, selectedStatus, statusReason);
-
-      if (result.success) {
-        setActionMessage(`Status updated to ${selectedStatus} successfully`);
-        setShowStatusModal(false);
-        onUpdate(client.id, { status: selectedStatus });
-        onRefresh();
-      }
-    } catch (error) {
-      setActionError(error.response?.data?.error || 'Failed to update status');
     } finally {
       setIsLoading(false);
     }
@@ -790,19 +760,6 @@ const ClientActions = ({ client, onUpdate, onRefresh, onDelete, theme }) => {
                 >
                   <Download size={14} />
                   Export Data
-                </button>
-
-                <button
-                  onClick={() => {
-                    setShowActions(false);
-                    setShowStatusModal(true);
-                  }}
-                  className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 ${
-                    theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                  }`}
-                >
-                  <Edit size={14} />
-                  Update Status
                 </button>
 
                 <button
@@ -954,70 +911,6 @@ const ClientActions = ({ client, onUpdate, onRefresh, onDelete, theme }) => {
                 <Star className="inline mr-2" size={16} />
               )}
               Update Tier
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Update Status Modal */}
-      <Modal
-        isOpen={showStatusModal}
-        onClose={() => {
-          setShowStatusModal(false);
-          setSelectedStatus(client.status || 'active');
-          setStatusReason('');
-        }}
-        title="Update Client Status"
-      >
-        <div className="space-y-4">
-          <div>
-            <label className={`block text-sm font-medium mb-2 ${themeClasses.text.secondary}`}>
-              Select New Status
-            </label>
-            <EnhancedSelect
-              value={selectedStatus}
-              onChange={(value) => setSelectedStatus(value)}
-              options={statusOptions}
-              theme={theme}
-              disabled={isLoading}
-            />
-          </div>
-          <div>
-            <label className={`block text-sm font-medium mb-2 ${themeClasses.text.secondary}`}>
-              Reason (Optional)
-            </label>
-            <textarea
-              value={statusReason}
-              onChange={(e) => setStatusReason(e.target.value)}
-              className={`w-full px-3 py-2 rounded-lg border ${themeClasses.input}`}
-              rows="2"
-              placeholder="Reason for status change..."
-              disabled={isLoading}
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => {
-                setShowStatusModal(false);
-                setSelectedStatus(client.status || 'active');
-                setStatusReason('');
-              }}
-              disabled={isLoading}
-              className={`px-4 py-2 rounded-lg font-medium ${themeClasses.button.secondary}`}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleUpdateStatus}
-              disabled={isLoading}
-              className={`px-4 py-2 rounded-lg font-medium ${themeClasses.button.primary}`}
-            >
-              {isLoading ? (
-                <FaSpinner className="animate-spin inline mr-2" />
-              ) : (
-                <Check className="inline mr-2" size={16} />
-              )}
-              Update Status
             </button>
           </div>
         </div>

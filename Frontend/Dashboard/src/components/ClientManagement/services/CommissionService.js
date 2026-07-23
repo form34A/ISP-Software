@@ -255,6 +255,19 @@ class CommissionService {
   }
 
   /**
+   * Mark transaction as paid
+   * Endpoint: /api/user_management/commissions/{id}/mark_paid/
+   */
+  async markAsPaid(id, paymentData, signal) {
+    const response = await api.post(`${this.baseURL}/commissions/${id}/mark_paid/`, {
+      payment_method: paymentData.payment_method,
+      payment_reference: paymentData.payment_reference,
+      notes: paymentData.notes
+    }, { signal });
+    return response.data;
+  }
+
+  /**
    * Reject transaction
    * Endpoint: /api/user_management/commissions/{id}/reject/
    */
