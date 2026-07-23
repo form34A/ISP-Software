@@ -750,6 +750,7 @@ import {
   FiRefreshCw,
   FiUsers,
   FiGlobe,
+  FiEyeOff,
 } from "react-icons/fi";
 import { FaSpinner, FaUserCheck, FaCircle } from "react-icons/fa";
 import { IoMdAlert } from "react-icons/io";
@@ -1102,7 +1103,12 @@ const GridStats = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  // Fail open: starts empty (nothing hidden) and stays empty for the life of
+  // the page unless a prefs fetch actually succeeds with a valid shape - a
+  // failed or malformed prefs response must never hide content.
+  const [hiddenKeys, setHiddenKeys] = useState(() => new Set());
   const abortControllerRef = useRef(null);
+  const prefsAbortControllerRef = useRef(null);
   const refreshIntervalRef = useRef(null);
   const { theme } = useTheme();
 
@@ -1161,7 +1167,7 @@ const GridStats = () => {
       // Only show critical errors as toasts
       const showToast = !err.response || err.response.status >= 500 || err.request;
       if (showToast) {
-        toast.error(errorMessage, { 
+        toast.error(errorMessage, {
           duration: 5000,
           id: 'dashboard-load-error'
         });
@@ -1169,26 +1175,59 @@ const GridStats = () => {
     }
   }, []);
 
+  // Card/chart visibility preferences - background/non-critical, so this
+  // never touches `loading`/`error` state and never toasts. Fail open on
+  // any failure or unexpected shape: hiddenKeys simply stays/reverts to
+  // empty, which renders everything.
+  const fetchPrefs = useCallback(async (signal) => {
+    try {
+      const response = await api.get('/api/account/dashboard-preferences/', { signal });
+      const hiddenList = response?.data?.hidden;
+      if (Array.isArray(hiddenList)) {
+        setHiddenKeys(new Set(hiddenList.filter((key) => typeof key === 'string')));
+      } else {
+        // Unexpected shape - fail open rather than trust a partial response.
+        setHiddenKeys(new Set());
+      }
+    } catch (err) {
+      if (isCancel(err)) {
+        return;
+      }
+      console.log('🔴 Dashboard preferences fetch error (failing open):', err);
+      setHiddenKeys(new Set());
+    }
+  }, []);
+
   // Initialize data loading
   useEffect(() => {
     let isMounted = true;
     abortControllerRef.current = new AbortController();
+    prefsAbortControllerRef.current = new AbortController();
 
     const loadData = async () => {
       if (isMounted) {
         await fetchData(abortControllerRef.current.signal);
       }
     };
+    const loadPrefs = async () => {
+      if (isMounted) {
+        await fetchPrefs(prefsAbortControllerRef.current.signal);
+      }
+    };
 
     loadData();
-    
+    loadPrefs();
+
     return () => {
       isMounted = false;
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+      if (prefsAbortControllerRef.current) {
+        prefsAbortControllerRef.current.abort();
+      }
     };
-  }, [fetchData]);
+  }, [fetchData, fetchPrefs]);
 
   // Auto-refresh setup
   useEffect(() => {
@@ -1217,15 +1256,32 @@ const GridStats = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
-    
+
     abortControllerRef.current = new AbortController();
     fetchData(abortControllerRef.current.signal);
-    
+
     toast.loading('Refreshing dashboard data...', {
       duration: 2000,
       id: 'dashboard-refresh'
     });
   }, [fetchData]);
+
+  // User-initiated refresh (the "Refresh Data"/"Try Again" buttons) also
+  // re-checks preferences, since a user who just came back from toggling a
+  // card in Settings would expect this button to pick it up. The 5-minute
+  // auto-refresh above intentionally skips this and only calls
+  // handleRefresh - prefs only change via an explicit Settings visit, so
+  // there's no benefit to polling them every 5 minutes, just an extra
+  // request.
+  const handleManualRefresh = useCallback(() => {
+    handleRefresh();
+
+    if (prefsAbortControllerRef.current) {
+      prefsAbortControllerRef.current.abort();
+    }
+    prefsAbortControllerRef.current = new AbortController();
+    fetchPrefs(prefsAbortControllerRef.current.signal);
+  }, [handleRefresh, fetchPrefs]);
 
   // Data processing with validation
   const processedData = useMemo(() => {
@@ -1249,21 +1305,21 @@ const GridStats = () => {
   // Memoized chart components with error boundaries
   const memoizedCharts = useMemo(() => {
     if (!processedData) return null;
-    
-    const { 
-      grid_items, 
-      system_load, 
-      sales_data, 
-      revenue_data, 
-      financial_data, 
-      visitor_data, 
-      plan_performance, 
+
+    const {
+      grid_items,
+      system_load,
+      sales_data,
+      revenue_data,
+      financial_data,
+      visitor_data,
+      plan_performance,
       new_subscriptions,
       client_types,
     } = processedData;
 
     // Check if we have any data at all
-    const hasAnyData = 
+    const hasAnyData =
       grid_items.length > 0 ||
       Object.keys(system_load).length > 0 ||
       sales_data.length > 0 ||
@@ -1277,8 +1333,8 @@ const GridStats = () => {
     if (!hasAnyData) {
       return (
         <div className={`rounded-xl shadow-sm p-8 text-center ${
-          theme === "dark" 
-            ? "bg-gray-800/60 border-gray-700" 
+          theme === "dark"
+            ? "bg-gray-800/60 border-gray-700"
             : "bg-white/80 border-gray-200"
         } border`}>
           <FiBarChart2 className="text-4xl mx-auto mb-4 opacity-50" />
@@ -1296,15 +1352,80 @@ const GridStats = () => {
       );
     }
 
+    // Apply this user's card/chart visibility preferences. hiddenKeys is
+    // empty unless a prefs fetch actually succeeded (fail open elsewhere),
+    // so when prefs haven't loaded yet or failed, every one of these is
+    // visible and this behaves exactly like before this feature existed.
+    const visibleGridItems = grid_items.filter((item) => !hiddenKeys.has(`card:${item.id}`));
+    const isChartVisible = (dataKey) => !hiddenKeys.has(`chart:${dataKey}`);
+    const showSystemLoad = isChartVisible('system_load');
+    const showClientTypes = isChartVisible('client_types');
+    const showSales = isChartVisible('sales_data');
+    const showRevenue = isChartVisible('revenue_data');
+    const showPlanPerformance = isChartVisible('plan_performance');
+    const showFinancial = isChartVisible('financial_data');
+    const showVisitor = isChartVisible('visitor_data');
+    const showNewSubscriptions = isChartVisible('new_subscriptions');
+
+    const allHiddenByPrefs =
+      visibleGridItems.length === 0 &&
+      !showSystemLoad && !showClientTypes && !showSales && !showRevenue &&
+      !showPlanPerformance && !showFinancial && !showVisitor && !showNewSubscriptions;
+
+    if (allHiddenByPrefs) {
+      return (
+        <div className={`rounded-xl shadow-sm p-8 text-center ${
+          theme === "dark"
+            ? "bg-gray-800/60 border-gray-700"
+            : "bg-white/80 border-gray-200"
+        } border`}>
+          <FiEyeOff className="text-4xl mx-auto mb-4 opacity-50" />
+          <h3 className={`text-lg font-bold mb-2 ${
+            theme === "dark" ? "text-white" : "text-gray-900"
+          }`}>
+            All Dashboard Cards Are Hidden
+          </h3>
+          <p className={`text-sm ${
+            theme === "dark" ? "text-gray-400" : "text-gray-500"
+          }`}>
+            Re-enable cards and charts from System Settings → Admin Profile → Dashboard Cards.
+          </p>
+        </div>
+      );
+    }
+
+    // Renders a pair of charts that normally share an xl:grid-cols-2 row.
+    // Both visible: unchanged 2-column grid. Exactly one visible: that
+    // card renders alone, outside the 2-column grid, so it takes the full
+    // row width instead of leaving an empty column next to it. Neither
+    // visible: renders nothing at all, including the "mt-8 sm:mt-10"
+    // wrapper, so there's no stray margin.
+    const renderChartPair = (first, second) => {
+      const visibleNodes = [first, second].filter((entry) => entry.visible).map((entry) => entry.node);
+      if (visibleNodes.length === 0) {
+        return null;
+      }
+      if (visibleNodes.length === 1) {
+        return <div className="mt-8 sm:mt-10">{visibleNodes[0]}</div>;
+      }
+      return (
+        <div className="mt-8 sm:mt-10">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 sm:gap-8">
+            {visibleNodes}
+          </div>
+        </div>
+      );
+    };
+
     return (
       <>
         {/* Stats Grid */}
-        {grid_items.length > 0 && (
+        {visibleGridItems.length > 0 && (
           <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
-            {grid_items.map((item) => (
-              <ErrorBoundary 
-                key={item.id} 
-                theme={theme} 
+            {visibleGridItems.map((item) => (
+              <ErrorBoundary
+                key={item.id}
+                theme={theme}
                 chartName={`Stat Card: ${item.label}`}
                 showDetails={false}
               >
@@ -1315,225 +1436,244 @@ const GridStats = () => {
         )}
 
         {/* System Load Monitor */}
-        <div className="mt-8 sm:mt-10">
-          <ChartWithRetry
-            chartName="System Load Monitor"
-            data={system_load}
-            theme={theme}
-            ChartComponent={SystemLoadMonitor}
-            validationFields={['cpu_load', 'memory_load', 'bandwidth_used', 'upload_throughput', 'download_throughput']}
-            height="h-80"
-          />
-        </div>
+        {showSystemLoad && (
+          <div className="mt-8 sm:mt-10">
+            <ChartWithRetry
+              chartName="System Load Monitor"
+              data={system_load}
+              theme={theme}
+              ChartComponent={SystemLoadMonitor}
+              validationFields={['cpu_load', 'memory_load', 'bandwidth_used', 'upload_throughput', 'download_throughput']}
+              height="h-80"
+            />
+          </div>
+        )}
 
         {/* Client Type Breakdown */}
-        <div className="mt-8 sm:mt-10">
-          <ChartWithRetry
-            chartName="Client Type Distribution"
-            data={client_types}
-            theme={theme}
-            ChartComponent={ClientTypeBreakdown}
-            height="h-80"
-          />
-        </div>
-
-        {/* Performance Charts */}
-        <div className="mt-8 sm:mt-10">
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 sm:gap-8">
-            {/* Sales Performance */}
-            <div className={`rounded-xl shadow-sm overflow-hidden ${
-              theme === "dark" 
-                ? "bg-gray-800/60 backdrop-blur-md border-gray-700" 
-                : "bg-white/80 backdrop-blur-md border-gray-200"
-            } border transition-colors duration-200`}>
-              <div className={`px-4 sm:px-6 py-4 sm:py-5 border-b ${
-                theme === "dark" ? "border-gray-700" : "border-gray-200"
-              } transition-colors duration-200`}>
-                <h3 className={`text-lg font-bold ${
-                  theme === "dark" ? "text-white" : "text-gray-900"
-                } transition-colors duration-200`}>
-                  Sales Performance
-                </h3>
-                <p className={`mt-1 text-sm ${
-                  theme === "dark" ? "text-gray-400" : "text-gray-500"
-                } transition-colors duration-200`}>
-                  Monthly sales trend with comparison to last year
-                </p>
-              </div>
-              <div className="p-4 sm:p-6">
-                <ChartWithRetry
-                  chartName="Sales Performance"
-                  data={sales_data}
-                  theme={theme}
-                  ChartComponent={SalesChart}
-                />
-              </div>
-            </div>
-            
-            {/* Revenue Analysis */}
-            <div className={`rounded-xl shadow-sm overflow-hidden ${
-              theme === "dark" 
-                ? "bg-gray-800/60 backdrop-blur-md border-gray-700" 
-                : "bg-white/80 backdrop-blur-md border-gray-200"
-            } border transition-colors duration-200`}>
-              <div className={`px-4 sm:px-6 py-4 sm:py-5 border-b ${
-                theme === "dark" ? "border-gray-700" : "border-gray-200"
-              } transition-colors duration-200`}>
-                <h3 className={`text-lg font-bold ${
-                  theme === "dark" ? "text-white" : "text-gray-900"
-                } transition-colors duration-200`}>
-                  Revenue Analysis
-                </h3>
-                <p className={`mt-1 text-sm ${
-                  theme === "dark" ? "text-gray-400" : "text-gray-500"
-                } transition-colors duration-200`}>
-                  Revenue breakdown by product category
-                </p>
-              </div>
-              <div className="p-4 sm:p-6">
-                <ChartWithRetry
-                  chartName="Revenue Analysis"
-                  data={revenue_data}
-                  theme={theme}
-                  ChartComponent={RevenueChart}
-                />
-              </div>
-            </div>
+        {showClientTypes && (
+          <div className="mt-8 sm:mt-10">
+            <ChartWithRetry
+              chartName="Client Type Distribution"
+              data={client_types}
+              theme={theme}
+              ChartComponent={ClientTypeBreakdown}
+              height="h-80"
+            />
           </div>
-        </div>
+        )}
+
+        {/* Performance Charts: Sales Performance + Revenue Analysis */}
+        {renderChartPair(
+          {
+            visible: showSales,
+            node: (
+              <div key="sales" className={`rounded-xl shadow-sm overflow-hidden ${
+                theme === "dark"
+                  ? "bg-gray-800/60 backdrop-blur-md border-gray-700"
+                  : "bg-white/80 backdrop-blur-md border-gray-200"
+              } border transition-colors duration-200`}>
+                <div className={`px-4 sm:px-6 py-4 sm:py-5 border-b ${
+                  theme === "dark" ? "border-gray-700" : "border-gray-200"
+                } transition-colors duration-200`}>
+                  <h3 className={`text-lg font-bold ${
+                    theme === "dark" ? "text-white" : "text-gray-900"
+                  } transition-colors duration-200`}>
+                    Sales Performance
+                  </h3>
+                  <p className={`mt-1 text-sm ${
+                    theme === "dark" ? "text-gray-400" : "text-gray-500"
+                  } transition-colors duration-200`}>
+                    Monthly sales trend with comparison to last year
+                  </p>
+                </div>
+                <div className="p-4 sm:p-6">
+                  <ChartWithRetry
+                    chartName="Sales Performance"
+                    data={sales_data}
+                    theme={theme}
+                    ChartComponent={SalesChart}
+                  />
+                </div>
+              </div>
+            ),
+          },
+          {
+            visible: showRevenue,
+            node: (
+              <div key="revenue" className={`rounded-xl shadow-sm overflow-hidden ${
+                theme === "dark"
+                  ? "bg-gray-800/60 backdrop-blur-md border-gray-700"
+                  : "bg-white/80 backdrop-blur-md border-gray-200"
+              } border transition-colors duration-200`}>
+                <div className={`px-4 sm:px-6 py-4 sm:py-5 border-b ${
+                  theme === "dark" ? "border-gray-700" : "border-gray-200"
+                } transition-colors duration-200`}>
+                  <h3 className={`text-lg font-bold ${
+                    theme === "dark" ? "text-white" : "text-gray-900"
+                  } transition-colors duration-200`}>
+                    Revenue Analysis
+                  </h3>
+                  <p className={`mt-1 text-sm ${
+                    theme === "dark" ? "text-gray-400" : "text-gray-500"
+                  } transition-colors duration-200`}>
+                    Revenue breakdown by product category
+                  </p>
+                </div>
+                <div className="p-4 sm:p-6">
+                  <ChartWithRetry
+                    chartName="Revenue Analysis"
+                    data={revenue_data}
+                    theme={theme}
+                    ChartComponent={RevenueChart}
+                  />
+                </div>
+              </div>
+            ),
+          }
+        )}
 
         {/* Plan Performance & Financial Overview */}
-        <div className="mt-8 sm:mt-10">
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 sm:gap-8">
-            {/* Plan Performance */}
-            <div className={`rounded-xl shadow-sm overflow-hidden ${
-              theme === "dark" 
-                ? "bg-gray-800/60 backdrop-blur-md border-gray-700" 
-                : "bg-white/80 backdrop-blur-md border-gray-200"
-            } border transition-colors duration-200`}>
-              <div className={`px-4 sm:px-6 py-4 sm:py-5 border-b ${
-                theme === "dark" ? "border-gray-700" : "border-gray-200"
-              } transition-colors duration-200`}>
-                <h3 className={`text-lg font-bold ${
-                  theme === "dark" ? "text-white" : "text-gray-900"
+        {renderChartPair(
+          {
+            visible: showPlanPerformance,
+            node: (
+              <div key="plan-performance" className={`rounded-xl shadow-sm overflow-hidden ${
+                theme === "dark"
+                  ? "bg-gray-800/60 backdrop-blur-md border-gray-700"
+                  : "bg-white/80 backdrop-blur-md border-gray-200"
+              } border transition-colors duration-200`}>
+                <div className={`px-4 sm:px-6 py-4 sm:py-5 border-b ${
+                  theme === "dark" ? "border-gray-700" : "border-gray-200"
                 } transition-colors duration-200`}>
-                  Plan Performance
-                </h3>
-                <p className={`mt-1 text-sm ${
-                  theme === "dark" ? "text-gray-400" : "text-gray-500"
+                  <h3 className={`text-lg font-bold ${
+                    theme === "dark" ? "text-white" : "text-gray-900"
+                  } transition-colors duration-200`}>
+                    Plan Performance
+                  </h3>
+                  <p className={`mt-1 text-sm ${
+                    theme === "dark" ? "text-gray-400" : "text-gray-500"
+                  } transition-colors duration-200`}>
+                    Comparison by users, revenue and data usage
+                  </p>
+                </div>
+                <div className="p-4 sm:p-6">
+                  <ChartWithRetry
+                    chartName="Plan Performance"
+                    data={plan_performance}
+                    theme={theme}
+                    ChartComponent={PlanPerformanceChart}
+                  />
+                </div>
+              </div>
+            ),
+          },
+          {
+            visible: showFinancial,
+            node: (
+              <div key="financial" className={`rounded-xl shadow-sm overflow-hidden ${
+                theme === "dark"
+                  ? "bg-gray-800/60 backdrop-blur-md border-gray-700"
+                  : "bg-white/80 backdrop-blur-md border-gray-200"
+              } border transition-colors duration-200`}>
+                <div className={`px-4 sm:px-6 py-4 sm:py-5 border-b ${
+                  theme === "dark" ? "border-gray-700" : "border-gray-200"
                 } transition-colors duration-200`}>
-                  Comparison by users, revenue and data usage
-                </p>
+                  <h3 className={`text-lg font-bold ${
+                    theme === "dark" ? "text-white" : "text-gray-900"
+                  } transition-colors duration-200`}>
+                    Financial Overview
+                  </h3>
+                  <p className={`mt-1 text-sm ${
+                    theme === "dark" ? "text-gray-400" : "text-gray-500"
+                  } transition-colors duration-200`}>
+                    Quarterly financial performance
+                  </p>
+                </div>
+                <div className="p-4 sm:p-6">
+                  <ChartWithRetry
+                    chartName="Financial Overview"
+                    data={financial_data}
+                    theme={theme}
+                    ChartComponent={FinancialBarChart}
+                  />
+                </div>
               </div>
-              <div className="p-4 sm:p-6">
-                <ChartWithRetry
-                  chartName="Plan Performance"
-                  data={plan_performance}
-                  theme={theme}
-                  ChartComponent={PlanPerformanceChart}
-                />
-              </div>
-            </div>
-            
-            {/* Financial Overview */}
-            <div className={`rounded-xl shadow-sm overflow-hidden ${
-              theme === "dark" 
-                ? "bg-gray-800/60 backdrop-blur-md border-gray-700" 
-                : "bg-white/80 backdrop-blur-md border-gray-200"
-            } border transition-colors duration-200`}>
-              <div className={`px-4 sm:px-6 py-4 sm:py-5 border-b ${
-                theme === "dark" ? "border-gray-700" : "border-gray-200"
-              } transition-colors duration-200`}>
-                <h3 className={`text-lg font-bold ${
-                  theme === "dark" ? "text-white" : "text-gray-900"
-                } transition-colors duration-200`}>
-                  Financial Overview
-                </h3>
-                <p className={`mt-1 text-sm ${
-                  theme === "dark" ? "text-gray-400" : "text-gray-500"
-                } transition-colors duration-200`}>
-                  Quarterly financial performance
-                </p>
-              </div>
-              <div className="p-4 sm:p-6">
-                <ChartWithRetry
-                  chartName="Financial Overview"
-                  data={financial_data}
-                  theme={theme}
-                  ChartComponent={FinancialBarChart}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+            ),
+          }
+        )}
 
         {/* Visitor Analytics & Subscriptions */}
-        <div className="mt-8 sm:mt-10">
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 sm:gap-8">
-            {/* Visitor Analytics */}
-            <div className={`rounded-xl shadow-sm overflow-hidden ${
-              theme === "dark" 
-                ? "bg-gray-800/60 backdrop-blur-md border-gray-700" 
-                : "bg-white/80 backdrop-blur-md border-gray-200"
-            } border transition-colors duration-200`}>
-              <div className={`px-4 sm:px-6 py-4 sm:py-5 border-b ${
-                theme === "dark" ? "border-gray-700" : "border-gray-200"
-              } transition-colors duration-200`}>
-                <h3 className={`text-lg font-bold ${
-                  theme === "dark" ? "text-white" : "text-gray-900"
+        {renderChartPair(
+          {
+            visible: showVisitor,
+            node: (
+              <div key="visitor" className={`rounded-xl shadow-sm overflow-hidden ${
+                theme === "dark"
+                  ? "bg-gray-800/60 backdrop-blur-md border-gray-700"
+                  : "bg-white/80 backdrop-blur-md border-gray-200"
+              } border transition-colors duration-200`}>
+                <div className={`px-4 sm:px-6 py-4 sm:py-5 border-b ${
+                  theme === "dark" ? "border-gray-700" : "border-gray-200"
                 } transition-colors duration-200`}>
-                  Plan Popularity
-                </h3>
-                <p className={`mt-1 text-sm ${
-                  theme === "dark" ? "text-gray-400" : "text-gray-500"
+                  <h3 className={`text-lg font-bold ${
+                    theme === "dark" ? "text-white" : "text-gray-900"
+                  } transition-colors duration-200`}>
+                    Plan Popularity
+                  </h3>
+                  <p className={`mt-1 text-sm ${
+                    theme === "dark" ? "text-gray-400" : "text-gray-500"
+                  } transition-colors duration-200`}>
+                    User engagement and behavior
+                  </p>
+                </div>
+                <div className="p-4 sm:p-6">
+                  <ChartWithRetry
+                    chartName="Plan Popularity"
+                    data={visitor_data}
+                    theme={theme}
+                    ChartComponent={VisitorAnalyticsChart}
+                  />
+                </div>
+              </div>
+            ),
+          },
+          {
+            visible: showNewSubscriptions,
+            node: (
+              <div key="subscriptions" className={`rounded-xl shadow-sm overflow-hidden ${
+                theme === "dark"
+                  ? "bg-gray-800/60 backdrop-blur-md border-gray-700"
+                  : "bg-white/80 backdrop-blur-md border-gray-200"
+              } border transition-colors duration-200`}>
+                <div className={`px-4 sm:px-6 py-4 sm:py-5 border-b ${
+                  theme === "dark" ? "border-gray-700" : "border-gray-200"
                 } transition-colors duration-200`}>
-                  User engagement and behavior
-                </p>
+                  <h3 className={`text-lg font-bold ${
+                    theme === "dark" ? "text-white" : "text-gray-900"
+                  } transition-colors duration-200`}>
+                    Subscription Growth
+                  </h3>
+                  <p className={`mt-1 text-sm ${
+                    theme === "dark" ? "text-gray-400" : "text-gray-500"
+                  } transition-colors duration-200`}>
+                    Monthly new customer acquisition
+                  </p>
+                </div>
+                <div className="p-4 sm:p-6">
+                  <ChartWithRetry
+                    chartName="Subscription Growth"
+                    data={new_subscriptions}
+                    theme={theme}
+                    ChartComponent={NewSubscriptionsChart}
+                  />
+                </div>
               </div>
-              <div className="p-4 sm:p-6">
-                <ChartWithRetry
-                  chartName="Plan Popularity"
-                  data={visitor_data}
-                  theme={theme}
-                  ChartComponent={VisitorAnalyticsChart}
-                />
-              </div>
-            </div>
-            
-            {/* Subscription Growth */}
-            <div className={`rounded-xl shadow-sm overflow-hidden ${
-              theme === "dark" 
-                ? "bg-gray-800/60 backdrop-blur-md border-gray-700" 
-                : "bg-white/80 backdrop-blur-md border-gray-200"
-            } border transition-colors duration-200`}>
-              <div className={`px-4 sm:px-6 py-4 sm:py-5 border-b ${
-                theme === "dark" ? "border-gray-700" : "border-gray-200"
-              } transition-colors duration-200`}>
-                <h3 className={`text-lg font-bold ${
-                  theme === "dark" ? "text-white" : "text-gray-900"
-                } transition-colors duration-200`}>
-                  Subscription Growth
-                </h3>
-                <p className={`mt-1 text-sm ${
-                  theme === "dark" ? "text-gray-400" : "text-gray-500"
-                } transition-colors duration-200`}>
-                  Monthly new customer acquisition
-                </p>
-              </div>
-              <div className="p-4 sm:p-6">
-                <ChartWithRetry
-                  chartName="Subscription Growth"
-                  data={new_subscriptions}
-                  theme={theme}
-                  ChartComponent={NewSubscriptionsChart}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+            ),
+          }
+        )}
       </>
     );
-  }, [processedData, theme]);
+  }, [processedData, theme, hiddenKeys]);
 
   // Theme-based background classes
   const containerClass = theme === "dark" 
@@ -1605,7 +1745,7 @@ const GridStats = () => {
           </p>
           <div className="mt-4 flex flex-col sm:flex-row gap-2 justify-center">
             <button
-              onClick={handleRefresh}
+              onClick={handleManualRefresh}
               className={`inline-flex items-center px-3 py-2 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                 theme === "dark" 
                   ? "bg-blue-700 hover:bg-blue-600 focus:ring-blue-500 text-white" 
@@ -1684,11 +1824,11 @@ const GridStats = () => {
               Last updated: {formattedLastUpdated}
             </div>
             <button
-              onClick={handleRefresh}
+              onClick={handleManualRefresh}
               disabled={loading}
               className={`inline-flex items-center px-3 py-2 text-xs sm:text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                theme === "dark" 
-                  ? "border-gray-600 bg-gray-700 hover:bg-gray-600 text-gray-200 focus:ring-blue-500" 
+                theme === "dark"
+                  ? "border-gray-600 bg-gray-700 hover:bg-gray-600 text-gray-200 focus:ring-blue-500"
                   : "border-gray-300 bg-white hover:bg-gray-50 text-gray-700 focus:ring-blue-500"
               } border transition-colors duration-200`}
             >
