@@ -25,6 +25,7 @@ from network_management.models.router_management_model import (
 )
 from network_management.serializers.router_management_serializer import RouterStatsSerializer
 from network_management.utils.websocket_utils import WebSocketManager
+from network_management.utils.router_stats_helpers import safe_float, parse_system_resource
 
 logger = logging.getLogger(__name__)
 
@@ -67,17 +68,8 @@ class RouterStatsView(APIView):
 
                 stats = RouterStats.objects.filter(router=router).order_by("-timestamp")[:10]
 
-                def safe_float(x, default=0.0):
-                    try:
-                        return float(x)
-                    except Exception:
-                        return default
-
-                cpu = safe_float(system.get("cpu-load", 0))
-                free_mem = safe_float(system.get("free-memory", 0))
-                memory_mb = free_mem / 1024 / 1024 if free_mem else 0
+                cpu, memory_percent, temperature = parse_system_resource(system)
                 uptime = system.get("uptime", "0")
-                temperature = safe_float(system.get("cpu-temperature", 0))
                 interfaces = api.get_resource("/interface").get() or [{}]
                 rx = safe_float(interfaces[0].get("rx-byte", 0))
                 throughput_mb = rx / 1024 / 1024 if rx else 0
@@ -89,7 +81,7 @@ class RouterStatsView(APIView):
 
                 latest_stats = {
                     "cpu": cpu,
-                    "memory": memory_mb,
+                    "memory": memory_percent,
                     "clients": total_clients,
                     "hotspot_clients": len(hotspot),
                     "pppoe_clients": len(pppoe_active),
@@ -145,7 +137,7 @@ class RouterStatsView(APIView):
                     "pppoe_clients": 0,
                     "uptime": "N/A",
                     "signal": signal,
-                    "temperature": 0,
+                    "temperature": None,  # not reported by this API path - never a fake reading
                     "throughput": throughput,
                     "disk": 0,
                     "timestamp": timezone.now()
