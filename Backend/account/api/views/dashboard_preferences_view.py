@@ -13,21 +13,28 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 
-from account.dashboard_prefs import is_valid_dashboard_pref_key, MAX_HIDDEN_ITEMS
+from account.dashboard_prefs import (
+    is_valid_dashboard_pref_key, get_available_dashboard_items, MAX_HIDDEN_ITEMS
+)
 
 logger = logging.getLogger(__name__)
 
 
 class DashboardPreferencesView(APIView):
     """
-    GET   -> {"hidden": [...]}  (current user's hidden dashboard cards/charts)
+    GET   -> {"hidden": [...], "available": [...]}  (current user's hidden
+             dashboard cards/charts, plus every toggleable item's label/group
+             so the frontend never hardcodes them)
     PATCH -> {"hidden": [...]}  (replace the hidden list; validated)
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         dashboard_prefs = (request.user.metadata or {}).get("dashboard", {})
-        return Response({"hidden": dashboard_prefs.get("hidden", [])})
+        return Response({
+            "hidden": dashboard_prefs.get("hidden", []),
+            "available": get_available_dashboard_items(),
+        })
 
     def patch(self, request):
         if "hidden" not in request.data:

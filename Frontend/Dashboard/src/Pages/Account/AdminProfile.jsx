@@ -19,6 +19,7 @@ import React, {
 } from "react";
 import {
   LayoutDashboard,
+  LayoutGrid,
   Users,
   DollarSign,
   Camera,
@@ -44,6 +45,7 @@ const LoginHistory = lazy(() => import("../../components/AdminProfile/LoginHisto
 const SupportDocumentation = lazy(() => import("../../components/AdminProfile/SupportDocumentation"));
 const RolePermissions = lazy(() => import("../../components/AdminProfile/RolePermissions"));
 const PasswordSecurity = lazy(() => import("../../components/AdminProfile/PasswordSecurity"));
+const DashboardCardPreferences = lazy(() => import("../../components/AdminProfile/DashboardCardPreferences"));
 import avatar from "../../assets/avatar.png";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -330,6 +332,7 @@ const AdminProfile = () => {
       { id: "support", label: "Support & Docs", icon: BookOpen },
       { id: "roles", label: "Roles & Permissions", icon: UserCog },
       { id: "security", label: "Password & Security", icon: ShieldCheck },
+      { id: "dashboard-cards", label: "Dashboard Cards", icon: LayoutGrid },
     ],
     []
   );
@@ -574,6 +577,14 @@ const AdminProfile = () => {
           <Suspense fallback={<LoadingFallback />}>
             <motion.div key="security" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }} transition={{ duration: 0.35 }}>
               <PasswordSecurity user={profile} theme={theme} />
+            </motion.div>
+          </Suspense>
+        );
+      case "dashboard-cards":
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <motion.div key="dashboard-cards" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }} transition={{ duration: 0.35 }}>
+              <DashboardCardPreferences theme={theme} />
             </motion.div>
           </Suspense>
         );

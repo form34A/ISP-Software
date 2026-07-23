@@ -18,6 +18,12 @@
 
 ## Fixed
 
+### Dashboard Cards Settings UI - per-card visibility toggles wired to the dashboard-preferences endpoint (2026-07-23)
+- **Context:** the dashboard-preferences endpoint (previous entry) had `hidden`/validation but no way for the frontend to know what the 22 valid identifiers actually meant - it would have had to hardcode 22 labels itself, duplicating `dashboard/views.py`'s grid_items strings and `GridStats.jsx`'s chartName props.
+- **Fix:** `account/dashboard_prefs.py` now also holds `GRID_ITEM_LABELS`/`CHART_LABELS` (the label for each of the 14 card ids and 8 chart keys) plus `get_available_dashboard_items()`; `GET /api/account/dashboard-preferences/` returns `{"hidden": [...], "available": [{"key", "label", "group"}, ...]}`. `dashboard/views.py`'s `grid_items` construction now imports `GRID_ITEM_LABELS` and references it instead of repeating the 14 label strings a second time - confirmed by cross-checking `GET /api/dashboard/`'s grid_items labels against the preferences endpoint's `available` list post-deploy. (The 8 chart labels are still copied from `GridStats.jsx`'s `chartName` props by hand, noted in the module docstring - Python can't import a JS literal, so that one pairing needs a human to keep in sync if either side renames a chart.)
+- New Settings tab "Dashboard Cards" (`Frontend/Dashboard/src/Pages/Account/AdminProfile.jsx`, lazy-loaded `DashboardCardPreferences.jsx`, matching `PasswordSecurity.jsx`/`RolePermissions.jsx` styling exactly): toggles are switches (on = visible), a request queue serialises PATCHes so rapid toggles can't race, failures revert just that one toggle with an inline (non-toast) error, and a "Show all" action clears `hidden`.
+- **Status:** Fixed, deployed to production (`surfzone_backend` restarted, `surfzone_web` rebuilt from `nginx/Dockerfile`).
+
 ### GET /api/account/profile/ 500 - profile_pic accessed on a UserAccount field that doesn't exist (2026-07-23)
 - **Symptom:** `GET /api/account/profile/` (backing the Dashboard's Admin Profile page) returned a 500 on every call: `{"detail":"Failed to load profile data","error":"'UserAccount' object has no attribute 'profile_pic'"}`.
 - **Root cause:** `AdminProfileView.get()`/`.put()` (`account/api/views/admin_view.py`) accessed `user.profile_pic.url` directly, but `profile_pic` was never added as a real `UserAccount` model field - only referenced in this view and in `AdminProfileSerializer`, never declared on the model. Confirmed via `hasattr(user, 'profile_pic')` → `False` and a live curl reproducing the 500.

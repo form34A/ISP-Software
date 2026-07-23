@@ -568,6 +568,7 @@ from network_management.models.router_management_model import (
     RouterConnectionTest
 )
 from account.models.admin_model import Client
+from account.dashboard_prefs import GRID_ITEM_LABELS
 
 from .serializers import DashboardSerializer, DashboardDataService
 import logging
@@ -619,7 +620,7 @@ class DashboardView(APIView):
                 # 1. Current Online Users (Real-time from network management)
                 {
                     "id": 1,
-                    "label": "Current Online Users",
+                    "label": GRID_ITEM_LABELS[1],
                     "value": f"{client_metrics['total_active_users']:,}",
                     "comparison": f"Hotspot: {client_metrics['active_hotspot_users']:,} | PPPoE: {client_metrics['active_pppoe_users']:,}",
                     "icon": "FaUserCheck",
@@ -639,7 +640,7 @@ class DashboardView(APIView):
                 # 2. Total Active Subscriptions (Real from subscriptions)
                 {
                     "id": 2,
-                    "label": "Active Subscriptions",
+                    "label": GRID_ITEM_LABELS[2],
                     "value": f"{subscription_metrics.get('active_subscriptions', 0):,}",
                     "comparison": f"Hotspot: {subscription_metrics.get('hotspot_subscriptions', 0):,} | PPPoE: {subscription_metrics.get('pppoe_subscriptions', 0):,}",
                     "icon": "FiUserPlus",
@@ -653,7 +654,7 @@ class DashboardView(APIView):
                 # 3. Monthly Revenue (Real from transactions)
                 {
                     "id": 3,
-                    "label": "Monthly Revenue",
+                    "label": GRID_ITEM_LABELS[3],
                     "value": DashboardDataService.format_currency(payment_metrics['total_revenue']),
                     "comparison": f"Profit: {DashboardDataService.format_currency(payment_metrics['total_profit'])} | Expenses: {DashboardDataService.format_currency(payment_metrics['total_expenses'])}",
                     "icon": "FiDollarSign",
@@ -673,7 +674,7 @@ class DashboardView(APIView):
                 # 4. Today's Revenue (Real from today's transactions)
                 {
                     "id": 4,
-                    "label": "Today's Revenue",
+                    "label": GRID_ITEM_LABELS[4],
                     "value": DashboardDataService.format_currency(payment_metrics['today_revenue']),
                     "comparison": f"vs {DashboardDataService.format_currency(payment_metrics['yesterday_revenue'])} yesterday",
                     "icon": "FiActivity",
@@ -693,7 +694,7 @@ class DashboardView(APIView):
                 # 5. Network Uptime (Real from router status)
                 {
                     "id": 5,
-                    "label": "Network Uptime",
+                    "label": GRID_ITEM_LABELS[5],
                     "value": f"{router_metrics['online_percentage']:.1f}%",
                     "comparison": f"{router_metrics['online_routers']}/{router_metrics['total_routers']} routers online",
                     "icon": "FiWifi",
@@ -707,7 +708,7 @@ class DashboardView(APIView):
                 # 6. Connection Quality (Real from connection tests)
                 {
                     "id": 6,
-                    "label": "Connection Quality",
+                    "label": GRID_ITEM_LABELS[6],
                     "value": f"{connection_metrics['success_rate']:.1f}%",
                     "comparison": f"Avg response: {connection_metrics['avg_response_time']:.1f}ms",
                     "icon": "FiServer",
@@ -721,7 +722,7 @@ class DashboardView(APIView):
                 # 7. Router Health Score (Real from health checks)
                 {
                     "id": 7,
-                    "label": "Router Health",
+                    "label": GRID_ITEM_LABELS[7],
                     "value": f"{router_metrics['avg_health_score']:.0f}%",
                     "comparison": f"{router_metrics['online_routers']} routers monitored",
                     "icon": "FiTrendingUp",
@@ -735,7 +736,7 @@ class DashboardView(APIView):
                 # 8. Active Plans (Real from internet plans)
                 {
                     "id": 8,
-                    "label": "Active Plans",
+                    "label": GRID_ITEM_LABELS[8],
                     "value": f"{InternetPlan.objects.filter(active=True).count()}",
                     "comparison": f"Total subscriptions: {subscription_metrics.get('total_subscriptions', 0):,}",
                     "icon": "FiBarChart2",
@@ -749,7 +750,7 @@ class DashboardView(APIView):
                 # 9. New Subscriptions This Week (Real from subscriptions)
                 {
                     "id": 9,
-                    "label": "New Subscriptions (Week)",
+                    "label": GRID_ITEM_LABELS[9],
                     "value": f"{subscription_metrics.get('week_subscriptions', 0):,}",
                     "comparison": f"Today: {subscription_metrics.get('today_subscriptions', 0):,} | Month: {subscription_metrics.get('month_subscriptions', 0):,}",
                     "icon": "FiUsers",
@@ -763,7 +764,7 @@ class DashboardView(APIView):
                 # 10. System Load (Real from router stats)
                 {
                     "id": 10,
-                    "label": "System Load",
+                    "label": GRID_ITEM_LABELS[10],
                     "value": f"{system_load.get('cpu_load', 0):.1f}%",
                     "comparison": f"Memory: {system_load.get('memory_load', 0):.1f}% | Bandwidth: {system_load.get('bandwidth_used', 0):.0f} Mbps",
                     "icon": "FiCpu",
@@ -777,7 +778,7 @@ class DashboardView(APIView):
                 # 11. Plan Categories Performance
                 {
                     "id": 11,
-                    "label": "Plan Categories",
+                    "label": GRID_ITEM_LABELS[11],
                     "value": f"{len(plan_categories_metrics)}",
                     "comparison": f"Residential: {plan_categories_metrics.get('Residential', {}).get('active_subscriptions', 0):,} | Business: {plan_categories_metrics.get('Business', {}).get('active_subscriptions', 0):,}",
                     "icon": "FiGlobe",
@@ -791,7 +792,7 @@ class DashboardView(APIView):
                 # 12. Revenue by Access Type
                 {
                     "id": 12,
-                    "label": "Hotspot Revenue",
+                    "label": GRID_ITEM_LABELS[12],
                     "value": DashboardDataService.format_currency(payment_metrics['hotspot_revenue']),
                     "comparison": f"PPPoE: {DashboardDataService.format_currency(payment_metrics['pppoe_revenue'])} | Both: {DashboardDataService.format_currency(payment_metrics['both_revenue'])}",
                     "icon": "FiWifi",
@@ -811,7 +812,7 @@ class DashboardView(APIView):
                 # 13. PPPoE Revenue
                 {
                     "id": 13,
-                    "label": "PPPoE Revenue",
+                    "label": GRID_ITEM_LABELS[13],
                     "value": DashboardDataService.format_currency(payment_metrics['pppoe_revenue']),
                     "comparison": f"Hotspot: {DashboardDataService.format_currency(payment_metrics['hotspot_revenue'])} | Both: {DashboardDataService.format_currency(payment_metrics['both_revenue'])}",
                     "icon": "FiServer",
@@ -831,7 +832,7 @@ class DashboardView(APIView):
                 # 14. Network Capacity
                 {
                     "id": 14,
-                    "label": "Network Capacity",
+                    "label": GRID_ITEM_LABELS[14],
                     "value": f"{router_metrics['load_percentage']:.1f}%",
                     "comparison": f"{router_metrics['current_load']:,}/{router_metrics['total_capacity']:,} clients",
                     "icon": "FiTrendingUp",
