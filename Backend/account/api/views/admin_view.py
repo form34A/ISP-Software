@@ -260,10 +260,11 @@ class AdminProfileView(APIView):
     def get(self, request):
         user = request.user
         try:
+            profile_pic_file = getattr(user, 'profile_pic', None)
             profile_data = {
                 "name": user.name,
                 "email": user.email,
-                "profile_pic": request.build_absolute_uri(user.profile_pic.url) if user.profile_pic else "",
+                "profile_pic": request.build_absolute_uri(profile_pic_file.url) if profile_pic_file else None,
                 "user_type": user.user_type,
                 "is_2fa_enabled": getattr(user, 'is_2fa_enabled', False),
                 "metadata": getattr(user, 'metadata', {}),
@@ -354,10 +355,11 @@ class AdminProfileView(APIView):
                 metadata={"changes": changes},
                 is_critical=False
             )
+            profile_pic_file = getattr(user, 'profile_pic', None)
             response_data = {
                 "name": user.name,
                 "email": user.email,
-                "profile_pic": request.build_absolute_uri(user.profile_pic.url) if user.profile_pic else "",
+                "profile_pic": request.build_absolute_uri(profile_pic_file.url) if profile_pic_file else None,
                 "user_type": user.user_type,
                 "is_2fa_enabled": user.is_2fa_enabled,
                 "metadata": user.metadata,

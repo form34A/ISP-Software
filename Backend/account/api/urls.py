@@ -24,16 +24,18 @@
 from django.urls import path
 from account.api.views.admin_view import (
     AdminProfileView, ClientListView, ClientDetailView, ClientCreateView,
-    ClientConnectionStatsView, ClientBulkActionView, LoginHistoryView, 
+    ClientConnectionStatsView, ClientBulkActionView, LoginHistoryView,
     NotificationView, TwoFAView
 )
+from account.api.views.dashboard_preferences_view import DashboardPreferencesView
 
 app_name = 'account'
 
 urlpatterns = [
     # Profile
     path('profile/', AdminProfileView.as_view(), name='admin-profile'),
-    
+    path('dashboard-preferences/', DashboardPreferencesView.as_view(), name='dashboard-preferences'),
+
     # Client management
     path('clients/', ClientListView.as_view(), name='client-list'),
     path('clients/create/', ClientCreateView.as_view(), name='client-create'),

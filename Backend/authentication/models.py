@@ -1528,7 +1528,15 @@ class UserAccount(AbstractBaseUser, PermissionsMixin):
     date_joined = models.DateTimeField(auto_now_add=True, db_index=True)
     last_login = models.DateTimeField(null=True, blank=True, db_index=True)
     last_updated = models.DateTimeField(auto_now=True)
-    
+
+    # ========== FREEFORM PREFERENCES ==========
+    # AdminProfileView/AdminProfileSerializer have read and written this key
+    # for a while, but with no column behind it every value was silently
+    # discarded on save and always read back as {}. Namespaced sub-keys
+    # (e.g. metadata["dashboard"]) let unrelated features share this one
+    # JSON blob without clobbering each other.
+    metadata = models.JSONField(default=dict, blank=True)
+
     objects = UserAccountManager()
     
     # ✅ Djoser compatibility: Authenticated users login with email
