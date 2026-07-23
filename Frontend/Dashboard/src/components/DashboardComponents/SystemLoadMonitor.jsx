@@ -700,7 +700,9 @@ const SystemLoadMonitor = ({
       key: "bandwidth",
       icon: <FiWifi className="text-xl sm:text-2xl" />,
       title: "Bandwidth Usage",
-      value: `${data.bandwidth_used || 0}/${data.bandwidth_total || 100} Mbps`,
+      value: (data.bandwidth_used != null && data.bandwidth_total != null)
+        ? `${data.bandwidth_used.toFixed(1)}/${data.bandwidth_total.toFixed(1)} Mbps`
+        : "No recent data",
       comparison: data.bandwidth_comparison || "No previous data",
       bgColor: theme === "dark" ? "bg-teal-900/50" : "bg-teal-100",
       iconColor: theme === "dark" ? "text-teal-300" : "text-teal-600",
@@ -708,7 +710,9 @@ const SystemLoadMonitor = ({
       trend: "up",
       trendValue: "7.1%",
       gauge: renderGauge(((data.bandwidth_used || 0) / (data.bandwidth_total || 100)) * 100),
-      status: ((data.bandwidth_used || 0) / (data.bandwidth_total || 100)) > 0.85 ? "critical" : ((data.bandwidth_used || 0) / (data.bandwidth_total || 100)) > 0.75 ? "warning" : "normal",
+      status: (data.bandwidth_used == null || data.bandwidth_total == null)
+        ? "normal"
+        : (data.bandwidth_used / data.bandwidth_total) > 0.85 ? "critical" : (data.bandwidth_used / data.bandwidth_total) > 0.75 ? "warning" : "normal",
     },
     {
       key: "cpu",
@@ -742,26 +746,35 @@ const SystemLoadMonitor = ({
       key: "router_status",
       icon: <FiServer className="text-xl sm:text-2xl" />,
       title: "Router Status",
-      value: (data.router_status === "online" ? "Online" : "Offline") || "Unknown",
+      value: data.router_status === "online" ? "Online" : data.router_status === "unknown" ? "Unknown" : "Offline",
       comparison: data.router_uptime || "Uptime unknown",
-      bgColor: data.router_status === "online" 
-        ? theme === "dark" ? "bg-green-900/50" : "bg-green-100" 
-        : theme === "dark" ? "bg-red-900/50" : "bg-red-100",
-      iconColor: data.router_status === "online" 
-        ? theme === "dark" ? "text-green-300" : "text-green-600" 
-        : theme === "dark" ? "text-red-300" : "text-red-600",
-      borderColor: data.router_status === "online" 
-        ? theme === "dark" ? "border-green-700" : "border-green-200" 
-        : theme === "dark" ? "border-red-700" : "border-red-200",
-      status: data.router_status === "online" ? "normal" : "critical",
-      valueColor: data.router_status === "online" 
-        ? "text-green-500" : "text-red-500",
+      bgColor: data.router_status === "online"
+        ? theme === "dark" ? "bg-green-900/50" : "bg-green-100"
+        : data.router_status === "unknown"
+          ? theme === "dark" ? "bg-amber-900/50" : "bg-amber-100"
+          : theme === "dark" ? "bg-red-900/50" : "bg-red-100",
+      iconColor: data.router_status === "online"
+        ? theme === "dark" ? "text-green-300" : "text-green-600"
+        : data.router_status === "unknown"
+          ? theme === "dark" ? "text-amber-300" : "text-amber-600"
+          : theme === "dark" ? "text-red-300" : "text-red-600",
+      borderColor: data.router_status === "online"
+        ? theme === "dark" ? "border-green-700" : "border-green-200"
+        : data.router_status === "unknown"
+          ? theme === "dark" ? "border-amber-700" : "border-amber-200"
+          : theme === "dark" ? "border-red-700" : "border-red-200",
+      status: data.router_status === "online" ? "normal" : data.router_status === "unknown" ? "warning" : "critical",
+      valueColor: data.router_status === "online"
+        ? "text-green-500" : data.router_status === "unknown"
+          ? "text-amber-500" : "text-red-500",
     },
     {
       key: "throughput",
       icon: <FiActivity className="text-xl sm:text-2xl" />,
       title: "Network Throughput",
-      value: `${(data.upload_throughput || 0).toFixed(1)}↑ / ${(data.download_throughput || 0).toFixed(1)}↓ Mbps`,
+      value: (data.upload_throughput != null && data.download_throughput != null)
+        ? `${data.upload_throughput.toFixed(1)}↑ / ${data.download_throughput.toFixed(1)}↓ Mbps`
+        : "No recent data",
       comparison: data.throughput_comparison || "No previous data",
       bgColor: theme === "dark" ? "bg-cyan-900/50" : "bg-cyan-100",
       iconColor: theme === "dark" ? "text-cyan-300" : "text-cyan-600",
@@ -769,7 +782,9 @@ const SystemLoadMonitor = ({
       trend: "up",
       trendValue: "15.2%",
       gauge: renderThroughputGauge(data.upload_throughput || 0, data.download_throughput || 0, data.bandwidth_total || 100),
-      status: ((data.upload_throughput || 0) + (data.download_throughput || 0)) > ((data.bandwidth_total || 100) * 0.8) ? "critical" : ((data.upload_throughput || 0) + (data.download_throughput || 0)) > ((data.bandwidth_total || 100) * 0.6) ? "warning" : "normal",
+      status: (data.upload_throughput == null || data.download_throughput == null)
+        ? "normal"
+        : (data.upload_throughput + data.download_throughput) > ((data.bandwidth_total || 100) * 0.8) ? "critical" : (data.upload_throughput + data.download_throughput) > ((data.bandwidth_total || 100) * 0.6) ? "warning" : "normal",
     },
     {
       key: "temperature",

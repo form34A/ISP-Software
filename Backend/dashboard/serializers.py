@@ -361,7 +361,7 @@
 
 
 from rest_framework import serializers
-from django.db.models import Sum, Count, Avg, Q, Max
+from django.db.models import Sum, Count, Avg, Q, Max, F
 from django.utils import timezone
 from datetime import timedelta
 import logging
@@ -377,6 +377,7 @@ from network_management.models.router_management_model import (
     Router, RouterStats, HotspotUser, PPPoEUser, RouterHealthCheck,
     RouterConnectionTest
 )
+from network_management.models.wan_sample_model import WanSample
 from account.models.admin_model import Client
 
 class GridItemSerializer(serializers.Serializer):
@@ -395,8 +396,8 @@ class GridItemSerializer(serializers.Serializer):
 class SystemLoadSerializer(serializers.Serializer):
     api_response_time = serializers.IntegerField()
     api_comparison = serializers.CharField()
-    bandwidth_used = serializers.FloatField()
-    bandwidth_total = serializers.FloatField()
+    bandwidth_used = serializers.FloatField(allow_null=True)
+    bandwidth_total = serializers.FloatField(allow_null=True)
     bandwidth_comparison = serializers.CharField()
     cpu_load = serializers.FloatField()
     cpu_comparison = serializers.CharField()
@@ -404,8 +405,8 @@ class SystemLoadSerializer(serializers.Serializer):
     memory_comparison = serializers.CharField()
     router_status = serializers.CharField()
     router_uptime = serializers.CharField()
-    upload_throughput = serializers.FloatField()
-    download_throughput = serializers.FloatField()
+    upload_throughput = serializers.FloatField(allow_null=True)
+    download_throughput = serializers.FloatField(allow_null=True)
     throughput_comparison = serializers.CharField()
     router_temperature = serializers.FloatField(allow_null=True)
     temperature_comparison = serializers.CharField()
@@ -472,7 +473,35 @@ class DashboardSerializer(serializers.Serializer):
 
 class DashboardDataService:
     """Enhanced data service that integrates all existing apps with real dynamic data"""
-    
+
+    # Mirrors sample_wan.py's DEFAULT_ROUTER_ID/--interface default, so the
+    # dashboard reads WAN samples from the same router+interface the
+    # collector actually writes - a second sampled router/interface can't
+    # silently blend into these numbers.
+    DEFAULT_WAN_ROUTER_ID = 6
+    DEFAULT_WAN_INTERFACE = 'ether1'
+
+    @staticmethod
+    def _resolve_wan_router_id():
+        """
+        Same fallback chain as sample_wan.py's _resolve_router: prefer the
+        known default WAN router if it's active, else fall back to the
+        single active router if there's exactly one. Returns None (callers
+        show "No recent data") rather than guessing across an ambiguous fleet.
+        """
+        if Router.objects.filter(
+            pk=DashboardDataService.DEFAULT_WAN_ROUTER_ID, is_active=True
+        ).exists():
+            return DashboardDataService.DEFAULT_WAN_ROUTER_ID
+
+        active_router_ids = list(
+            Router.objects.filter(is_active=True).values_list('id', flat=True)
+        )
+        if len(active_router_ids) == 1:
+            return active_router_ids[0]
+        return None
+
+
     @staticmethod
     def calculate_percentage_change(current, previous):
         """Calculate percentage change safely."""
@@ -601,37 +630,63 @@ class DashboardDataService:
     def get_router_metrics():
         """Get comprehensive router health metrics with real data."""
         try:
+            now = timezone.now()
+            stale_cutoff = now - timedelta(minutes=10)
+
             routers = Router.objects.filter(is_active=True)
-            online_routers = routers.filter(connection_status='connected').count()
-            
+            total_routers = routers.count()
+
+            # A router only counts as genuinely "online" if it's both marked
+            # connected AND has reported in within the last ~10 minutes -
+            # otherwise a stopped collector leaves connection_status stuck on
+            # 'connected' looking falsely healthy forever. Routers that are
+            # still marked connected but haven't reported recently are
+            # "stale" (status-unknown), distinct from a router that actually
+            # failed to connect.
+            online_routers = routers.filter(
+                connection_status='connected', last_seen__gte=stale_cutoff
+            ).count()
+            stale_routers = routers.filter(
+                connection_status='connected', last_seen__lt=stale_cutoff
+            ).count()
+
+            if online_routers > 0:
+                router_status = "online"
+            elif stale_routers > 0:
+                router_status = "unknown"
+            else:
+                router_status = "offline"
+
             # Recent health checks
             recent_health_checks = RouterHealthCheck.objects.filter(
-                timestamp__gte=timezone.now() - timedelta(hours=1)
+                timestamp__gte=now - timedelta(hours=1)
             )
-            
+
             avg_health_score = recent_health_checks.aggregate(
                 avg_score=Avg('health_score')
             )['avg_score'] or 0
-            
+
             # Router capacity and load
             total_capacity = routers.aggregate(
                 total_capacity=Sum('max_clients')
             )['total_capacity'] or 0
-            
+
             # Router has no current_clients field; mirror Router.get_active_users_count()
             # (hotspot_users + pppoe_users active counts) across the whole queryset.
             current_load = (
                 HotspotUser.objects.filter(router__in=routers, active=True).count() +
                 PPPoEUser.objects.filter(router__in=routers, active=True).count()
             )
-            
+
             load_percentage = (current_load / total_capacity * 100) if total_capacity > 0 else 0
-            
+
             return {
-                'total_routers': routers.count(),
+                'total_routers': total_routers,
                 'online_routers': online_routers,
+                'stale_routers': stale_routers,
+                'router_status': router_status,
                 'avg_health_score': avg_health_score,
-                'online_percentage': (online_routers / routers.count() * 100) if routers.count() > 0 else 0,
+                'online_percentage': (online_routers / total_routers * 100) if total_routers > 0 else 0,
                 'total_capacity': total_capacity,
                 'current_load': current_load,
                 'load_percentage': load_percentage
@@ -639,8 +694,8 @@ class DashboardDataService:
         except Exception as e:
             logger.error(f"Error getting router metrics: {e}")
             return {
-                'total_routers': 0, 'online_routers': 0, 'avg_health_score': 0, 
-                'online_percentage': 0, 'total_capacity': 0, 'current_load': 0, 'load_percentage': 0
+                'total_routers': 0, 'online_routers': 0, 'stale_routers': 0, 'router_status': 'unknown',
+                'avg_health_score': 0, 'online_percentage': 0, 'total_capacity': 0, 'current_load': 0, 'load_percentage': 0
             }
 
     @staticmethod
@@ -716,20 +771,44 @@ class DashboardDataService:
             return []
 
     @staticmethod
+    def _wan_trend_label(now, aggregate_expr, router_id, interface):
+        """
+        Compare a WanSample metric's average over the last 10 minutes against
+        the preceding 10-minute window and return an honest "up/down X% vs
+        previous 10 min" label - or None if either window lacks data to
+        compare (never a fabricated percentage). Scoped to a single
+        router+interface so a second sampled WAN link can't blend in.
+        """
+        recent = WanSample.objects.filter(
+            router_id=router_id, interface=interface,
+            timestamp__gte=now - timedelta(minutes=10)
+        ).aggregate(avg=aggregate_expr)['avg']
+
+        preceding = WanSample.objects.filter(
+            router_id=router_id, interface=interface,
+            timestamp__gte=now - timedelta(minutes=20),
+            timestamp__lt=now - timedelta(minutes=10)
+        ).aggregate(avg=aggregate_expr)['avg']
+
+        if recent is None or preceding is None or preceding == 0:
+            return None
+
+        pct_change = (recent - preceding) / preceding * 100
+        direction = "up" if pct_change >= 0 else "down"
+        return f"{direction} {abs(pct_change):.1f}% vs previous 10 min"
+
+    @staticmethod
     def get_system_load_metrics():
         """Get real system load metrics from routers and network data."""
         try:
             now = timezone.now()
-            
+
             # Router statistics
             router_stats = RouterStats.objects.filter(
                 timestamp__gte=now - timedelta(hours=1)
             ).aggregate(
                 avg_cpu=Avg('cpu'),
                 avg_memory=Avg('memory'),
-                avg_upload=Avg('upload_speed'),
-                avg_download=Avg('download_speed'),
-                avg_throughput=Avg('throughput'),
                 max_cpu=Max('cpu'),
                 max_memory=Max('memory')
             )
@@ -744,11 +823,6 @@ class DashboardDataService:
             )
 
             router_metrics = DashboardDataService.get_router_metrics()
-            connection_metrics = DashboardDataService.get_connection_metrics()
-
-            # Calculate bandwidth usage from active subscriptions
-            active_subscriptions = Subscription.objects.filter(status='active', is_active=True)
-            estimated_bandwidth_usage = active_subscriptions.count() * 5  # 5 Mbps per active user estimate
 
             # Temperature/firmware come from whichever router most recently reported
             # RouterStats within the same window the other system-load metrics use above.
@@ -759,21 +833,63 @@ class DashboardDataService:
             router_temperature = latest_stats.temperature if latest_stats else None
             firmware_version = latest_stats.router.firmware_version if latest_stats and latest_stats.router else None
 
+            # Bandwidth/throughput come from real WAN samples (sample_wan),
+            # not a synthetic estimate. Scoped to the single active WAN
+            # router+interface (same resolution sample_wan itself uses) so a
+            # second sampled router/interface can't skew these numbers. A
+            # sample must be within the last 10 minutes to count as
+            # "current" - otherwise these stay None rather than showing a
+            # stale or fabricated number.
+            wan_router_id = DashboardDataService._resolve_wan_router_id()
+            wan_interface = DashboardDataService.DEFAULT_WAN_INTERFACE
+
+            if wan_router_id is not None:
+                latest_wan_sample = WanSample.objects.filter(
+                    router_id=wan_router_id, interface=wan_interface,
+                    timestamp__gte=now - timedelta(minutes=10),
+                    down_mbps__isnull=False
+                ).order_by('-timestamp').first()
+
+                bandwidth_total = WanSample.objects.filter(
+                    router_id=wan_router_id, interface=wan_interface,
+                    timestamp__gte=now - timedelta(days=7),
+                    down_mbps__isnull=False
+                ).aggregate(peak=Max('down_mbps'))['peak']
+
+                bandwidth_trend = DashboardDataService._wan_trend_label(
+                    now, Avg('down_mbps'), wan_router_id, wan_interface
+                )
+                throughput_trend = DashboardDataService._wan_trend_label(
+                    now, Avg(F('down_mbps') + F('up_mbps')), wan_router_id, wan_interface
+                )
+            else:
+                # Fleet is ambiguous (no default router active, more than
+                # one other active router) - don't guess which WAN link to
+                # read from.
+                latest_wan_sample = None
+                bandwidth_total = None
+                bandwidth_trend = None
+                throughput_trend = None
+
+            bandwidth_used = latest_wan_sample.down_mbps if latest_wan_sample else None
+            download_throughput = latest_wan_sample.down_mbps if latest_wan_sample else None
+            upload_throughput = latest_wan_sample.up_mbps if latest_wan_sample else None
+
             return {
                 "api_response_time": int((api_response_data['avg_response'] or 0) * 1000),
                 "api_comparison": f"Max: {int((api_response_data['max_response'] or 0) * 1000)}ms",
-                "bandwidth_used": float(estimated_bandwidth_usage),
-                "bandwidth_total": float(router_metrics['total_capacity'] * 10),  # Estimate 10 Mbps per client capacity
-                "bandwidth_comparison": f"{router_metrics['load_percentage']:.1f}% capacity used",
+                "bandwidth_used": bandwidth_used,
+                "bandwidth_total": bandwidth_total,
+                "bandwidth_comparison": bandwidth_trend or "No recent data",
                 "cpu_load": float(router_stats['avg_cpu'] or 0),
                 "cpu_comparison": f"Peak: {router_stats['max_cpu'] or 0}%",
                 "memory_load": float(router_stats['avg_memory'] or 0),
                 "memory_comparison": f"Peak: {router_stats['max_memory'] or 0}%",
-                "router_status": "online" if router_metrics['online_routers'] > 0 else "offline",
+                "router_status": router_metrics['router_status'],
                 "router_uptime": f"{router_metrics['online_routers']}/{router_metrics['total_routers']} online",
-                "upload_throughput": float(router_stats['avg_upload'] or 0),
-                "download_throughput": float(router_stats['avg_download'] or 0),
-                "throughput_comparison": f"Total: {router_stats['avg_throughput'] or 0:.1f} Mbps",
+                "upload_throughput": upload_throughput,
+                "download_throughput": download_throughput,
+                "throughput_comparison": throughput_trend or "No recent data",
                 "router_temperature": router_temperature,
                 "temperature_comparison": "Normal operating range" if router_temperature is not None else "No recent data",
                 "firmware_version": firmware_version,
@@ -783,11 +899,11 @@ class DashboardDataService:
         except Exception as e:
             logger.error(f"Error getting system load metrics: {e}")
             return {
-                "api_response_time": 0, "api_comparison": "N/A", "bandwidth_used": 0,
-                "bandwidth_total": 0, "bandwidth_comparison": "N/A", "cpu_load": 0,
+                "api_response_time": 0, "api_comparison": "N/A", "bandwidth_used": None,
+                "bandwidth_total": None, "bandwidth_comparison": "N/A", "cpu_load": 0,
                 "cpu_comparison": "N/A", "memory_load": 0, "memory_comparison": "N/A",
-                "router_status": "unknown", "router_uptime": "N/A", "upload_throughput": 0,
-                "download_throughput": 0, "throughput_comparison": "N/A", "router_temperature": None,
+                "router_status": "unknown", "router_uptime": "N/A", "upload_throughput": None,
+                "download_throughput": None, "throughput_comparison": "N/A", "router_temperature": None,
                 "temperature_comparison": "N/A", "firmware_version": None,
                 "firmware_comparison": "N/A", "status": "unknown"
             }
