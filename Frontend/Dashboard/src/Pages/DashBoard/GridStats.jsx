@@ -1321,7 +1321,7 @@ const GridStats = () => {
             data={system_load}
             theme={theme}
             ChartComponent={SystemLoadMonitor}
-            validationFields={['cpu', 'memory', 'disk', 'network']}
+            validationFields={['cpu_load', 'memory_load', 'bandwidth_used', 'upload_throughput', 'download_throughput']}
             height="h-80"
           />
         </div>

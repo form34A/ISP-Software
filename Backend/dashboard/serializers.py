@@ -407,9 +407,9 @@ class SystemLoadSerializer(serializers.Serializer):
     upload_throughput = serializers.FloatField()
     download_throughput = serializers.FloatField()
     throughput_comparison = serializers.CharField()
-    router_temperature = serializers.FloatField()
+    router_temperature = serializers.FloatField(allow_null=True)
     temperature_comparison = serializers.CharField()
-    firmware_version = serializers.CharField()
+    firmware_version = serializers.CharField(allow_null=True)
     firmware_comparison = serializers.CharField()
     status = serializers.CharField()
 
@@ -503,16 +503,16 @@ class DashboardDataService:
             
             # Client counts from subscriptions
             unique_hotspot_clients = Subscription.objects.filter(
-                access_method='hotspot', 
+                access_method='hotspot',
                 status='active',
                 is_active=True
-            ).values('client').distinct().count()
-            
+            ).values('client_id').distinct().count()
+
             unique_pppoe_clients = Subscription.objects.filter(
-                access_method='pppoe', 
+                access_method='pppoe',
                 status='active',
                 is_active=True
-            ).values('client').distinct().count()
+            ).values('client_id').distinct().count()
             
             total_clients = unique_hotspot_clients + unique_pppoe_clients
             
@@ -661,24 +661,17 @@ class DashboardDataService:
                 ).values_list('response_time', flat=True)
                 
                 avg_response_time = sum(successful_response_times) / len(successful_response_times) if successful_response_times else 0
-                
-                # Connection type breakdown
-                hotspot_tests = recent_tests.filter(connection_type='hotspot')
-                pppoe_tests = recent_tests.filter(connection_type='pppoe')
-                
+
                 return {
                     'success_rate': success_rate,
                     'avg_response_time': avg_response_time,
                     'total_tests': total_tests,
-                    'hotspot_success_rate': (hotspot_tests.filter(success=True).count() / hotspot_tests.count() * 100) if hotspot_tests.count() > 0 else 0,
-                    'pppoe_success_rate': (pppoe_tests.filter(success=True).count() / pppoe_tests.count() * 100) if pppoe_tests.count() > 0 else 0
                 }
         except Exception as e:
             logger.error(f"Error getting connection metrics: {e}")
-        
+
         return {
             'success_rate': 0, 'avg_response_time': 0, 'total_tests': 0,
-            'hotspot_success_rate': 0, 'pppoe_success_rate': 0
         }
 
     @staticmethod
@@ -757,6 +750,15 @@ class DashboardDataService:
             active_subscriptions = Subscription.objects.filter(status='active', is_active=True)
             estimated_bandwidth_usage = active_subscriptions.count() * 5  # 5 Mbps per active user estimate
 
+            # Temperature/firmware come from whichever router most recently reported
+            # RouterStats within the same window the other system-load metrics use above.
+            latest_stats = RouterStats.objects.filter(
+                timestamp__gte=now - timedelta(hours=1)
+            ).select_related('router').order_by('-timestamp').first()
+
+            router_temperature = latest_stats.temperature if latest_stats else None
+            firmware_version = latest_stats.router.firmware_version if latest_stats and latest_stats.router else None
+
             return {
                 "api_response_time": int((api_response_data['avg_response'] or 0) * 1000),
                 "api_comparison": f"Max: {int((api_response_data['max_response'] or 0) * 1000)}ms",
@@ -772,10 +774,10 @@ class DashboardDataService:
                 "upload_throughput": float(router_stats['avg_upload'] or 0),
                 "download_throughput": float(router_stats['avg_download'] or 0),
                 "throughput_comparison": f"Total: {router_stats['avg_throughput'] or 0:.1f} Mbps",
-                "router_temperature": 45.0,  # Could be enhanced with actual temperature data
-                "temperature_comparison": "Normal operating range",
-                "firmware_version": "v6.49.6",
-                "firmware_comparison": "Latest stable",
+                "router_temperature": router_temperature,
+                "temperature_comparison": "Normal operating range" if router_temperature is not None else "No recent data",
+                "firmware_version": firmware_version,
+                "firmware_comparison": "Latest stable" if firmware_version else "No recent data",
                 "status": "operational" if router_metrics['online_percentage'] > 90 else "degraded"
             }
         except Exception as e:
@@ -785,8 +787,8 @@ class DashboardDataService:
                 "bandwidth_total": 0, "bandwidth_comparison": "N/A", "cpu_load": 0,
                 "cpu_comparison": "N/A", "memory_load": 0, "memory_comparison": "N/A",
                 "router_status": "unknown", "router_uptime": "N/A", "upload_throughput": 0,
-                "download_throughput": 0, "throughput_comparison": "N/A", "router_temperature": 0,
-                "temperature_comparison": "N/A", "firmware_version": "Unknown",
+                "download_throughput": 0, "throughput_comparison": "N/A", "router_temperature": None,
+                "temperature_comparison": "N/A", "firmware_version": None,
                 "firmware_comparison": "N/A", "status": "unknown"
             }
 
