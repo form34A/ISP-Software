@@ -24,7 +24,10 @@ db.sqlite3
 
 # DB backups
 *.sql
+*.sql.gz
 backup_*.sql
+backups/
+surfzone-backups/
 
 # Node / frontend
 node_modules/
