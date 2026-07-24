@@ -1165,6 +1165,32 @@ AUTHENTICATION_BACKENDS = ['django.contrib.auth.backends.ModelBackend']
 PAYMENT_APP_BASE_URL = config('PAYMENT_APP_BASE_URL', default='http://localhost:8000')
 BASE_URL = config('BASE_URL', default='http://localhost:8000')
 
+# Public tunnel/host that Safaricom's STK push callback is sent to. This has to
+# be a real, internet-reachable URL (e.g. an ngrok tunnel in dev, the real
+# public domain in production) - Safaricom cannot reach BASE_URL's localhost
+# default. No default here on purpose: if this isn't set, callback wiring
+# should fail loudly instead of silently registering an unreachable localhost
+# CallBackURL with Safaricom.
+MPESA_CALLBACK_URL = config('CALLBACK_URL', default=None)
+
+# Optional comma-separated allowlist of source IPs trusted to POST M-Pesa
+# callbacks (e.g. Safaricom's or your tunnel provider's). Left unset by
+# default: Safaricom's real calling IP ranges aren't hardcoded here since
+# guessing them wrong would silently break legitimate payment callbacks.
+_mpesa_callback_allowed_ips = config('MPESA_CALLBACK_ALLOWED_IPS', default='')
+MPESA_CALLBACK_ALLOWED_IPS = (
+    [ip.strip() for ip in _mpesa_callback_allowed_ips.split(',') if ip.strip()]
+    if _mpesa_callback_allowed_ips else []
+)
+
+# Notification backend used by service_operations.notifications.notify().
+# Swap this to a real gateway backend (SMS/email/push) later - the payment
+# and activation flow that calls notify() does not need to change.
+NOTIFICATION_BACKEND = config(
+    'NOTIFICATION_BACKEND',
+    default='service_operations.notifications.backends.LoggingNotificationBackend'
+)
+
 # Email Configuration - CRITICAL FOR DJOSER ACTIVATION EMAILS
 if ENVIRONMENT == 'production':
     # Production email settings
@@ -1576,8 +1602,10 @@ TIME_ZONE = config('TIME_ZONE', default='UTC')
 USE_I18N = True
 USE_TZ = True
 
-SITE_DOMAIN = "localhost:8000"
-BASE_URL = f"http://{SITE_DOMAIN}"
+# NOTE: BASE_URL is set once, above, from the CALLBACK_URL/BASE_URL env vars.
+# It used to be clobbered here with a hardcoded `http://localhost:8000`,
+# which silently defeated the env-driven config above for anything (like the
+# M-Pesa CallBackURL) that reads settings.BASE_URL/MPESA_CALLBACK_URL.
 
 # Debug Toolbar Configuration
 if DEBUG and ENVIRONMENT == 'development':

@@ -451,6 +451,7 @@ from network_management.serializers.router_management_serializer import (
     HotspotUserSerializer, PPPoEUserSerializer
 )
 from network_management.utils.websocket_utils import WebSocketManager
+from network_management.utils.router_guard import ensure_router_manages_hotspot_users
 
 logger = logging.getLogger(__name__)
 
@@ -488,6 +489,7 @@ class HotspotUserDetailView(APIView):
         user = self.get_user(pk)
         try:
             router = user.router
+            ensure_router_manages_hotspot_users(router, "disconnect hotspot user")
 
             if router.type == "mikrotik":
                 from routeros_api import RouterOsApiPool
@@ -585,6 +587,7 @@ class PPPoEUserDetailView(APIView):
         user = self.get_user(pk)
         try:
             router = user.router
+            ensure_router_manages_hotspot_users(router, "disconnect PPPoE user")
 
             if router.type == "mikrotik":
                 from routeros_api import RouterOsApiPool

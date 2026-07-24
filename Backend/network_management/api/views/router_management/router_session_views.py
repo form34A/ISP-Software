@@ -7,6 +7,7 @@ This module provides API views for session recovery and user activation.
 """
 
 import logging
+import secrets
 from datetime import timedelta
 from django.utils import timezone
 from django.db import transaction
@@ -30,6 +31,7 @@ from internet_plans.models.plan_models import InternetPlan
 from service_operations.models.subscription_models import Subscription
 from payments.models.payment_config_model import Transaction
 from network_management.utils.websocket_utils import WebSocketManager
+from network_management.services.hotspot_provisioning import provision_hotspot_user, provision_pppoe_user
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +141,8 @@ class RouterActivateUserView(APIView):
             self.end_existing_session(existing_session, "router_switch")
 
         remaining_time = self.calculate_remaining_time(client, plan)
+        hotspot_secret = secrets.token_urlsafe(16)
+        username_str = client.user.username if getattr(client, "user", None) else f"user_{client.id}"
 
         hotspot_user = HotspotUser.objects.create(
             router=router,
@@ -148,10 +152,13 @@ class RouterActivateUserView(APIView):
             mac=mac,
             ip=request.META.get('REMOTE_ADDR', '0.0.0.0'),
             active=True,
-            remaining_time=remaining_time
+            remaining_time=remaining_time,
+            hotspot_secret=hotspot_secret,
         )
 
-        success, error = self.activate_hotspot_on_router(router, hotspot_user)
+        success, error = provision_hotspot_user(
+            router, mac, username_str, hotspot_secret, plan=plan, remaining_time=remaining_time
+        )
 
         try:
             subscription, _ = Subscription.objects.get_or_create(client=client, internet_plan=plan)
@@ -209,7 +216,10 @@ class RouterActivateUserView(APIView):
             remaining_time=remaining_time
         )
 
-        success, error = self.activate_pppoe_on_router(router, pppoe_user)
+        success, error = provision_pppoe_user(
+            router, username, password, plan=plan, remote_address=pppoe_user.ip_address,
+            remaining_time=remaining_time
+        )
 
         try:
             subscription, _ = Subscription.objects.get_or_create(client=client, internet_plan=plan)
@@ -288,148 +298,6 @@ class RouterActivateUserView(APIView):
 
         remaining_time = max(0, plan_duration - total_used_time) if plan_duration > 0 else 0
         return remaining_time
-
-    def activate_hotspot_on_router(self, router, hotspot_user):
-        """Activate hotspot user on the physical router."""
-        try:
-            if router.type == "mikrotik":
-                from routeros_api import RouterOsApiPool
-                api_pool = RouterOsApiPool(
-                    router.ip,
-                    username=router.username,
-                    password=router.password,
-                    port=router.port,
-                    plaintext_login=True
-                )
-                api = api_pool.get_api()
-                hotspot = api.get_resource("/ip/hotspot/user")
-
-                data_limit = 0
-                if getattr(hotspot_user.plan, "data_limit_value", None) and str(hotspot_user.plan.data_limit_value).lower() != 'unlimited':
-                    try:
-                        multiplier = 1024 ** 3 if hotspot_user.plan.data_limit_unit == "GB" else 1024 ** 4
-                        data_limit = int(float(hotspot_user.plan.data_limit_value) * multiplier)
-                    except Exception:
-                        data_limit = 0
-
-                username = getattr(hotspot_user.client, "user", None)
-                username_str = username.username if username else f"user_{hotspot_user.client.id}"
-
-                hotspot.add(
-                    name=username_str,
-                    password=str(hotspot_user.client.id),
-                    profile=getattr(hotspot_user.plan, "name", ""),
-                    mac_address=hotspot_user.mac.lower(),
-                    limit_bytes_total=data_limit
-                )
-
-                if hotspot_user.remaining_time and hotspot_user.remaining_time > 0:
-                    active = api.get_resource("/ip/hotspot/active").get(mac_address=hotspot_user.mac.lower())
-                    if active:
-                        api.get_resource("/ip/hotspot/active").set(
-                            id=active[0].get('id'),
-                            idle_timeout=f"{max(1, hotspot_user.remaining_time // 60)}m"
-                        )
-
-                api_pool.disconnect()
-                return True, None
-
-            elif router.type == "ubiquiti":
-                import requests
-                controller_url = f"https://{router.ip}:{router.port}/api/s/default/cmd/stamgr"
-                auth_minutes = max(1, hotspot_user.remaining_time // 60) if hotspot_user.remaining_time and hotspot_user.remaining_time > 0 else 1440
-
-                def to_int_if_numeric(val):
-                    try:
-                        return int(float(val))
-                    except Exception:
-                        return 0
-
-                bytes_limit = 0
-                if getattr(hotspot_user.plan, "data_limit_value", None) and str(hotspot_user.plan.data_limit_value).lower() != 'unlimited':
-                    try:
-                        mul = 1024 ** 3 if hotspot_user.plan.data_limit_unit == "GB" else 1024 ** 4
-                        bytes_limit = int(float(hotspot_user.plan.data_limit_value) * mul)
-                    except Exception:
-                        bytes_limit = 0
-
-                data = {
-                    "cmd": "authorize-guest",
-                    "mac": hotspot_user.mac.lower(),
-                    "minutes": auth_minutes,
-                    "up": to_int_if_numeric(getattr(hotspot_user.plan, "upload_speed_value", 0)),
-                    "down": to_int_if_numeric(getattr(hotspot_user.plan, "download_speed_value", 0)),
-                    "bytes": bytes_limit
-                }
-
-                response = requests.post(
-                    controller_url,
-                    json=data,
-                    auth=(router.username, router.password),
-                    verify=False,
-                    timeout=10
-                )
-
-                if response.status_code == 200:
-                    return True, None
-                else:
-                    return False, f"Ubiquiti API error: {response.status_code}"
-
-            elif router.type == "cisco":
-                return True, None
-
-            else:
-                return False, f"Unsupported router type: {router.type}"
-
-        except Exception as e:
-            logger.exception(f"Error activating hotspot on router {getattr(router, 'id', 'unknown')}")
-            return False, str(e)
-
-    def activate_pppoe_on_router(self, router, pppoe_user):
-        """Activate PPPoE user on the physical router."""
-        try:
-            if router.type == "mikrotik":
-                from routeros_api import RouterOsApiPool
-                api_pool = RouterOsApiPool(
-                    router.ip,
-                    username=router.username,
-                    password=router.password,
-                    port=router.port,
-                    plaintext_login=True
-                )
-                api = api_pool.get_api()
-                pppoe_secret = api.get_resource("/ppp/secret")
-
-                pppoe_secret.add(
-                    name=pppoe_user.username,
-                    password=pppoe_user.password,
-                    service="pppoe",
-                    profile=getattr(pppoe_user.plan, "name", "default"),
-                    remote_address=pppoe_user.ip_address or "dynamic"
-                )
-
-                if pppoe_user.remaining_time and pppoe_user.remaining_time > 0:
-                    profile_resource = api.get_resource("/ppp/profile")
-                    profile_resource.set(
-                        name=getattr(pppoe_user.plan, "name", "default"),
-                        session_timeout=f"{max(1, pppoe_user.remaining_time // 60)}m"
-                    )
-
-                api_pool.disconnect()
-                return True, None
-
-            elif router.type == "ubiquiti":
-                return True, "PPPoE configuration not supported on Ubiquiti routers"
-
-            elif router.type == "cisco":
-                return True, None
-
-            else:
-                return False, f"Unsupported router type for PPPoE: {router.type}"
-
-        except Exception as e:
-            logger.exception(f"Error activating PPPoE on router {getattr(router, 'id', 'unknown')}")
-            return False, str(e)
 
 
 class SessionRecoveryView(APIView):
@@ -520,6 +388,7 @@ class SessionRecoveryView(APIView):
     def recover_hotspot_session(self, hotspot_user, recovery_method):
         """Recover hotspot session."""
         try:
+            recovered_secret = hotspot_user.hotspot_secret or secrets.token_urlsafe(16)
             new_hotspot_user = HotspotUser.objects.create(
                 router=hotspot_user.router,
                 client=hotspot_user.client,
@@ -528,11 +397,17 @@ class SessionRecoveryView(APIView):
                 mac=hotspot_user.mac,
                 ip=hotspot_user.ip,
                 active=True,
-                remaining_time=hotspot_user.remaining_time
+                remaining_time=hotspot_user.remaining_time,
+                hotspot_secret=recovered_secret,
             )
 
-            success, error = self.activate_hotspot_on_router(hotspot_user.router, new_hotspot_user)
-            
+            username = getattr(hotspot_user.client, "user", None)
+            username_str = username.username if username else f"user_{hotspot_user.client.id}"
+            success, error = provision_hotspot_user(
+                hotspot_user.router, hotspot_user.mac, username_str, recovered_secret,
+                plan=hotspot_user.plan, remaining_time=hotspot_user.remaining_time
+            )
+
             if success:
                 hotspot_user.recovery_attempted = True
                 hotspot_user.save()
@@ -559,8 +434,12 @@ class SessionRecoveryView(APIView):
                 remaining_time=pppoe_user.remaining_time
             )
 
-            success, error = self.activate_pppoe_on_router(pppoe_user.router, new_pppoe_user)
-            
+            success, error = provision_pppoe_user(
+                pppoe_user.router, pppoe_user.username, pppoe_user.password,
+                plan=pppoe_user.plan, remote_address=pppoe_user.ip_address,
+                remaining_time=pppoe_user.remaining_time
+            )
+
             if success:
                 pppoe_user.recovery_attempted = True
                 pppoe_user.save()
@@ -571,87 +450,3 @@ class SessionRecoveryView(APIView):
         except Exception as e:
             logger.error(f"PPPoE session recovery failed: {str(e)}")
             return False
-
-    def activate_hotspot_on_router(self, router, hotspot_user):
-        """Reuse activation logic from RouterActivateUserView."""
-        try:
-            if router.type == "mikrotik":
-                from routeros_api import RouterOsApiPool
-                api_pool = RouterOsApiPool(
-                    router.ip,
-                    username=router.username,
-                    password=router.password,
-                    port=router.port,
-                    plaintext_login=True
-                )
-                api = api_pool.get_api()
-                hotspot = api.get_resource("/ip/hotspot/user")
-
-                data_limit = 0
-                if getattr(hotspot_user.plan, "data_limit_value", None) and str(hotspot_user.plan.data_limit_value).lower() != 'unlimited':
-                    try:
-                        multiplier = 1024 ** 3 if hotspot_user.plan.data_limit_unit == "GB" else 1024 ** 4
-                        data_limit = int(float(hotspot_user.plan.data_limit_value) * multiplier)
-                    except Exception:
-                        data_limit = 0
-
-                username = getattr(hotspot_user.client, "user", None)
-                username_str = username.username if username else f"user_{hotspot_user.client.id}"
-
-                hotspot.add(
-                    name=username_str,
-                    password=str(hotspot_user.client.id),
-                    profile=getattr(hotspot_user.plan, "name", ""),
-                    mac_address=hotspot_user.mac.lower(),
-                    limit_bytes_total=data_limit
-                )
-
-                if hotspot_user.remaining_time and hotspot_user.remaining_time > 0:
-                    active = api.get_resource("/ip/hotspot/active").get(mac_address=hotspot_user.mac.lower())
-                    if active:
-                        api.get_resource("/ip/hotspot/active").set(
-                            id=active[0].get('id'),
-                            idle_timeout=f"{max(1, hotspot_user.remaining_time // 60)}m"
-                        )
-
-                api_pool.disconnect()
-                return True, None
-            return False, "Router type not supported for hotspot recovery"
-        except Exception as e:
-            return False, str(e)
-
-    def activate_pppoe_on_router(self, router, pppoe_user):
-        """Reuse activation logic from RouterActivateUserView."""
-        try:
-            if router.type == "mikrotik":
-                from routeros_api import RouterOsApiPool
-                api_pool = RouterOsApiPool(
-                    router.ip,
-                    username=router.username,
-                    password=router.password,
-                    port=router.port,
-                    plaintext_login=True
-                )
-                api = api_pool.get_api()
-                pppoe_secret = api.get_resource("/ppp/secret")
-
-                pppoe_secret.add(
-                    name=pppoe_user.username,
-                    password=pppoe_user.password,
-                    service="pppoe",
-                    profile=getattr(pppoe_user.plan, "name", "default"),
-                    remote_address=pppoe_user.ip_address or "dynamic"
-                )
-
-                if pppoe_user.remaining_time and pppoe_user.remaining_time > 0:
-                    profile_resource = api.get_resource("/ppp/profile")
-                    profile_resource.set(
-                        name=getattr(pppoe_user.plan, "name", "default"),
-                        session_timeout=f"{max(1, pppoe_user.remaining_time // 60)}m"
-                    )
-
-                api_pool.disconnect()
-                return True, None
-            return False, "Router type not supported for PPPoE recovery"
-        except Exception as e:
-            return False, str(e)

@@ -387,7 +387,7 @@
 #                 "PartyA": transaction.client.user.phone_number,
 #                 "PartyB": party_b,
 #                 "PhoneNumber": transaction.client.user.phone_number,
-#                 "CallBackURL": f"{settings.BASE_URL}/api/payments/callback/mpesa/",
+#                 "CallBackURL": f"{settings.MPESA_CALLBACK_URL.rstrip('/')}/mpesa/",
 #                 "AccountReference": f"CLIENT{transaction.client.id}",
 #                 "TransactionDesc": f"Payment for plan {transaction.plan_id}"
 #             }
@@ -2329,7 +2329,7 @@
 #                 "PartyA": transaction.client.user.phone_number,
 #                 "PartyB": party_b,
 #                 "PhoneNumber": transaction.client.user.phone_number,
-#                 "CallBackURL": f"{settings.BASE_URL}/api/payments/callback/mpesa/",
+#                 "CallBackURL": f"{settings.MPESA_CALLBACK_URL.rstrip('/')}/mpesa/",
 #                 "AccountReference": f"CLIENT{transaction.client.id}",
 #                 "TransactionDesc": f"Payment for plan {transaction.plan_id}"
 #             }
@@ -3761,6 +3761,7 @@ from django.utils import timezone
 from django.db.models import Q, Count, Avg, Max, Min, Sum, F, ExpressionWrapper, DurationField
 from django.shortcuts import get_object_or_404
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 import requests
 import base64
 import json
@@ -3768,6 +3769,7 @@ import hmac
 import hashlib
 import os
 import logging
+from django.db import transaction as db_transaction
 from payments.models.payment_config_model import (
     PaymentGateway,
     MpesaConfig,
@@ -4203,6 +4205,23 @@ class InitiatePaymentView(APIView):
 
             transaction = serializer.save()
 
+            # If the client came through the captive portal, link the
+            # PortalSession that captured their router/MAC so the callback
+            # can find it later to provision the hotspot user - see
+            # service_operations.services.payment_activation._resolve_portal_session.
+            portal_session_id = request.data.get('portal_session_id')
+            if portal_session_id:
+                from network_management.models.portal_session_model import PortalSession
+                portal_session = PortalSession.objects.filter(id=portal_session_id).first()
+                if portal_session:
+                    portal_session.transaction = transaction
+                    portal_session.status = 'payment_pending'
+                    portal_session.save(update_fields=['transaction', 'status', 'updated_at'])
+                    transaction.metadata['portal_session_id'] = str(portal_session.id)
+                    transaction.save(update_fields=['metadata'])
+                else:
+                    logger.warning(f"portal_session_id {portal_session_id} given but not found")
+
             # Initiate payment based on gateway type
             if gateway.name in ['mpesa_paybill', 'mpesa_till']:
                 return self.initiate_mpesa_payment(request, transaction, gateway)
@@ -4227,8 +4246,21 @@ class InitiatePaymentView(APIView):
         Initiate M-Pesa STK push payment
         """
         try:
+            if not settings.MPESA_CALLBACK_URL:
+                logger.error(
+                    "MPESA_CALLBACK_URL is not configured; refusing to initiate an STK "
+                    "push that Safaricom would have no reachable callback URL for."
+                )
+                transaction.status = 'failed'
+                transaction.metadata['error'] = 'MPESA_CALLBACK_URL is not configured'
+                transaction.save()
+                return Response(
+                    {"success": False, "error": "M-Pesa callback URL is not configured"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
             mpesa_config = gateway.mpesaconfig
-            
+
             # Generate access token
             token = self.generate_mpesa_token(mpesa_config, gateway.sandbox_mode)
             if not token:
@@ -4261,7 +4293,7 @@ class InitiatePaymentView(APIView):
                 "PartyA": transaction.client.user.phone_number,
                 "PartyB": party_b,
                 "PhoneNumber": transaction.client.user.phone_number,
-                "CallBackURL": f"{settings.BASE_URL}/api/payments/callback/mpesa/",
+                "CallBackURL": f"{settings.MPESA_CALLBACK_URL.rstrip('/')}/mpesa/",
                 "AccountReference": f"CLIENT{transaction.client.id}",
                 "TransactionDesc": f"Payment for plan {transaction.plan_id}"
             }
@@ -4281,13 +4313,14 @@ class InitiatePaymentView(APIView):
             ).json()
             
             if response.get('ResponseCode') == '0':
+                transaction.checkout_request_id = response['CheckoutRequestID']
                 transaction.metadata.update({
                     'checkout_request_id': response['CheckoutRequestID'],
                     'mpesa_request': payload,
                     'mpesa_response': response,
                 })
                 transaction.save()
-                
+
                 # Standardized response for internetplans
                 return Response({
                     "success": True,
@@ -5050,10 +5083,33 @@ class SubscriptionCallbackView(APIView):
 @method_decorator(csrf_exempt, name='dispatch')
 class MpesaCallbackView(APIView):
     """
-    M-Pesa payment callback handler
+    M-Pesa STK push callback handler.
+
+    Safaricom does not cryptographically sign STK callbacks, so authenticity
+    here rests on the callback naming a CheckoutRequestID that matches a
+    transaction we actually initiated and is still pending, with a paid
+    amount that matches what we asked for - forging a callback means guessing
+    a live Safaricom-issued CheckoutRequestID *and* the exact pending amount.
+    settings.MPESA_CALLBACK_ALLOWED_IPS can additionally be set to a list of
+    trusted source IPs; if it's not configured that check is skipped (and
+    logged as such) rather than silently enforced against a guessed range.
+
+    On a real success, this activates the subscription and provisions the
+    router synchronously, in-process - there is no Celery worker running in
+    this deployment, so this request is the only place that happens.
     """
     permission_classes = [AllowAny]
-    
+
+    # Well-known Safaricom Daraja STK push ResultCodes.
+    FAILURE_REASON_BY_RESULT_CODE = {
+        1: 'insufficient_funds',
+        1032: 'cancelled_by_user',
+        1037: 'timeout',
+        2001: 'wrong_pin',
+    }
+
+    TERMINAL_STATUSES = {'completed', 'failed', 'cancelled', 'refunded'}
+
     def post(self, request):
         """
         Process M-Pesa STK push callback
@@ -5061,9 +5117,8 @@ class MpesaCallbackView(APIView):
         try:
             data = request.data
             callback = data.get('Body', {}).get('stkCallback', {})
-            result_code = callback.get('ResultCode')
             checkout_id = callback.get('CheckoutRequestID')
-            
+
             if not checkout_id:
                 return JsonResponse(
                     {"ResultCode": 1, "ResultDesc": "Missing CheckoutRequestID"},
@@ -5071,77 +5126,62 @@ class MpesaCallbackView(APIView):
                 )
 
             try:
-                transaction = Transaction.objects.get(
-                    metadata__checkout_request_id=checkout_id
-                )
-            except Transaction.DoesNotExist:
-                logger.warning(f"Transaction not found for checkout ID: {checkout_id}")
+                result_code = int(callback.get('ResultCode'))
+            except (TypeError, ValueError):
                 return JsonResponse(
-                    {"ResultCode": 1, "ResultDesc": "Transaction not found"},
-                    status=404
+                    {"ResultCode": 1, "ResultDesc": "Missing/invalid ResultCode"},
+                    status=400
                 )
-            
-            # Log webhook
-            WebhookLog.objects.create(
-                gateway=transaction.gateway,
-                event_type='mpesa_callback',
-                payload=data,
-                headers=dict(request.headers),
-                ip_address=request.META.get('REMOTE_ADDR'),
-                status_code=200,
-                response="Processing",
-                signature_valid=True
-            )
-            
-            if result_code == '0':
-                items = callback.get('CallbackMetadata', {}).get('Item', [])
-                metadata = {item['Name']: item.get('Value') for item in items}
-                
-                transaction.status = 'completed'
-                transaction.metadata.update({
-                    'mpesa_receipt': metadata.get('MpesaReceiptNumber'),
-                    'phone_number': metadata.get('PhoneNumber'),
-                    'amount': metadata.get('Amount'),
-                    'transaction_date': metadata.get('TransactionDate'),
-                    'callback_data': data
-                })
-                transaction.save()
-                
-                # Ensure transaction log exists and is synced
-                if not transaction.logs.exists():
-                    transaction.create_transaction_log(status='success', access_type='hotspot')
-                else:
-                    # Update existing transaction log
-                    for log in transaction.logs.all():
-                        log.status = 'success'
-                        log.save()
-                
-                # Deliver callback to internetplans
-                self.deliver_subscription_callback(transaction)
-                
-                return JsonResponse({"ResultCode": 0, "ResultDesc": "Success"})
-            else:
-                transaction.status = 'failed'
-                transaction.metadata.update({
-                    'error': callback.get('ResultDesc', 'Payment failed'),
-                    'callback_data': data
-                })
-                transaction.save()
-                
-                # Update transaction log if exists
-                if transaction.logs.exists():
-                    for log in transaction.logs.all():
-                        log.status = 'failed'
-                        log.save()
-                        
-                return JsonResponse(
-                    {"ResultCode": result_code, "ResultDesc": callback.get('ResultDesc', 'Payment failed')}
+
+            source_ip = request.META.get('REMOTE_ADDR')
+            source_trusted = self._is_trusted_source(source_ip)
+
+            with db_transaction.atomic():
+                try:
+                    # select_for_update serializes concurrent/replayed
+                    # callbacks for the same transaction so idempotency below
+                    # can't race.
+                    txn = Transaction.objects.select_for_update().get(checkout_request_id=checkout_id)
+                except Transaction.DoesNotExist:
+                    # WebhookLog.gateway is required (NOT NULL) and there's no
+                    # transaction to attach one from here, so this rejection
+                    # is recorded via the log below rather than a WebhookLog row.
+                    logger.warning(
+                        f"M-Pesa callback for unknown/unmatched CheckoutRequestID: "
+                        f"{checkout_id} (source_ip={source_ip}); rejecting. "
+                        f"payload={data}"
+                    )
+                    return JsonResponse(
+                        {"ResultCode": 1, "ResultDesc": "Unknown transaction"},
+                        status=404
+                    )
+
+                WebhookLog.objects.create(
+                    gateway=txn.gateway,
+                    event_type='mpesa_callback',
+                    payload=data,
+                    headers=dict(request.headers),
+                    ip_address=source_ip,
+                    status_code=200,
+                    response="Processing",
+                    signature_valid=source_trusted,
                 )
-        except json.JSONDecodeError:
-            return JsonResponse(
-                {"ResultCode": 1, "ResultDesc": "Invalid JSON payload"},
-                status=400
-            )
+
+                # Idempotency: a replayed/duplicate callback for a
+                # transaction already resolved (by an earlier callback, or by
+                # the reconciliation job) is acknowledged without being
+                # reprocessed - never double-activate, never double-credit.
+                if txn.status in self.TERMINAL_STATUSES:
+                    logger.info(
+                        f"Ignoring replayed M-Pesa callback for {txn.reference} "
+                        f"(already {txn.status})"
+                    )
+                    return JsonResponse({"ResultCode": 0, "ResultDesc": "Already processed"})
+
+                if result_code == 0:
+                    return self._handle_success(txn, callback, data)
+                return self._handle_failure(txn, result_code, callback, data)
+
         except Exception as e:
             logger.error(f"M-Pesa callback processing failed: {str(e)}", exc_info=True)
             return JsonResponse(
@@ -5149,79 +5189,101 @@ class MpesaCallbackView(APIView):
                 status=500
             )
 
-    def deliver_subscription_callback(self, transaction):
-        """
-        Deliver payment completion callback to internetplans app
-        """
-        try:
-            callback_url = f"{settings.INTERNETPLANS_BASE_URL}/api/payments/callback/subscription/"
-            
-            payload = {
-                'reference': transaction.reference,
-                'status': 'completed',
-                'plan_id': transaction.plan_id,
-                'client_id': str(transaction.client.id),
-                'amount': str(transaction.amount),
-                'payment_method': 'mpesa',
-                'metadata': {
-                    'mpesa_receipt': transaction.metadata.get('mpesa_receipt'),
-                    'phone_number': transaction.metadata.get('phone_number'),
-                    'access_type': 'hotspot'
-                }
-            }
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'User-Agent': 'Payment-Service/1.0',
-                'X-Callback-Signature': self.generate_callback_signature(payload)
-            }
-            
-            response = requests.post(
-                callback_url,
-                json=payload,
-                headers=headers,
-                timeout=10
-            )
-            
-            # Log callback delivery attempt
-            CallbackDeliveryLog.objects.create(
-                transaction=transaction,
-                payload=payload,
-                status='delivered' if response.status_code == 200 else 'failed',
-                response_status=response.status_code,
-                response_body=response.text[:1000],
-                attempt_count=1,
-                error_message=response.text if response.status_code != 200 else '',
-                delivered_at=timezone.now() if response.status_code == 200 else None
-            )
-            
-            transaction.mark_callback_attempt()
-            
-            if response.status_code == 200:
-                logger.info(f"Callback delivered successfully for transaction {transaction.reference}")
-            else:
-                logger.warning(f"Callback delivery failed for transaction {transaction.reference}: {response.status_code}")
-                
-        except Exception as e:
-            logger.error(f"Callback delivery failed: {str(e)}")
-            CallbackDeliveryLog.objects.create(
-                transaction=transaction,
-                payload=payload,
-                status='failed',
-                attempt_count=1,
-                error_message=str(e)
-            )
-            transaction.mark_callback_attempt()
+    def _handle_success(self, txn, callback, raw_payload):
+        items = callback.get('CallbackMetadata', {}).get('Item', [])
+        metadata_items = {item['Name']: item.get('Value') for item in items}
 
-    def generate_callback_signature(self, payload):
-        """Generate signature for callback verification"""
-        secret = getattr(settings, 'CALLBACK_SECRET', 'default-secret')
-        message = json.dumps(payload, sort_keys=True)
-        return hmac.new(
-            secret.encode(),
-            message.encode(),
-            hashlib.sha256
-        ).hexdigest()
+        paid_amount = metadata_items.get('Amount')
+        if not self._amount_matches(paid_amount, txn.amount):
+            txn.status = 'failed'
+            txn.failure_reason = 'amount_mismatch'
+            txn.metadata.update({
+                'error': f"Paid amount {paid_amount!r} did not match expected {txn.amount}",
+                'callback_data': raw_payload,
+            })
+            txn.save()
+            logger.error(
+                f"M-Pesa amount mismatch for {txn.reference}: paid={paid_amount!r} expected={txn.amount}"
+            )
+            return JsonResponse({"ResultCode": 1, "ResultDesc": "Amount mismatch"}, status=400)
+
+        txn.status = 'completed'
+        txn.failure_reason = None
+        txn.metadata.update({
+            'mpesa_receipt': metadata_items.get('MpesaReceiptNumber'),
+            'phone_number': metadata_items.get('PhoneNumber'),
+            'amount': metadata_items.get('Amount'),
+            'transaction_date': metadata_items.get('TransactionDate'),
+            'callback_data': raw_payload,
+        })
+        txn.save()
+
+        # Ensure transaction log exists and is synced
+        if not txn.logs.exists():
+            txn.create_transaction_log(status='success', access_type=(txn.metadata or {}).get('access_type', 'hotspot'))
+        else:
+            for log in txn.logs.all():
+                log.status = 'success'
+                log.save()
+
+        # Activate the subscription and provision the router synchronously -
+        # no Celery, no queue. Money is already recorded as received above
+        # (txn.status='completed', committed regardless of what happens
+        # next), so a provisioning failure here can never lose that fact -
+        # it just leaves the subscription for reconcile_payments to retry.
+        from service_operations.services.payment_activation import activate_and_provision
+        try:
+            success, error = activate_and_provision(txn)
+        except Exception as e:
+            logger.error(f"Activation raised for transaction {txn.reference}: {e}", exc_info=True)
+            success, error = False, str(e)
+
+        if not success:
+            logger.error(f"Payment for {txn.reference} recorded but provisioning failed: {error}")
+
+        # Always acknowledge success to Safaricom once payment is recorded -
+        # a provisioning failure is ours to retry, not Safaricom's to redeliver.
+        return JsonResponse({"ResultCode": 0, "ResultDesc": "Success"})
+
+    def _handle_failure(self, txn, result_code, callback, raw_payload):
+        reason = self.FAILURE_REASON_BY_RESULT_CODE.get(result_code, 'other')
+        result_desc = callback.get('ResultDesc', 'Payment failed')
+
+        txn.status = 'cancelled' if reason == 'cancelled_by_user' else 'failed'
+        txn.failure_reason = reason
+        txn.metadata.update({
+            'error': result_desc,
+            'mpesa_result_code': result_code,
+            'callback_data': raw_payload,
+        })
+        txn.save()
+
+        if txn.logs.exists():
+            for log in txn.logs.all():
+                log.status = 'failed'
+                log.save()
+
+        logger.info(
+            f"M-Pesa payment not completed for {txn.reference}: "
+            f"reason={reason} result_code={result_code} desc={result_desc}"
+        )
+
+        return JsonResponse({"ResultCode": result_code, "ResultDesc": result_desc})
+
+    def _amount_matches(self, paid_amount, expected_amount) -> bool:
+        if paid_amount is None:
+            return False
+        try:
+            return Decimal(str(paid_amount)) == Decimal(str(expected_amount))
+        except (InvalidOperation, TypeError, ValueError):
+            return False
+
+    def _is_trusted_source(self, source_ip) -> bool:
+        allowed_ips = getattr(settings, 'MPESA_CALLBACK_ALLOWED_IPS', None)
+        if not allowed_ips:
+            logger.debug("MPESA_CALLBACK_ALLOWED_IPS not configured; source IP check not enforced.")
+            return True
+        return source_ip in allowed_ips
 
 
 @method_decorator(csrf_exempt, name='dispatch')

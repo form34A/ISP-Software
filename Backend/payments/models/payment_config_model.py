@@ -1302,6 +1302,29 @@ class Transaction(models.Model):
         blank=True,
         related_name="transactions"
     )
+    checkout_request_id = models.CharField(
+        max_length=100,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text="Safaricom CheckoutRequestID for the STK push that was sent for this transaction."
+    )
+    FAILURE_REASON_CHOICES = (
+        ("cancelled_by_user", "Cancelled by user"),
+        ("insufficient_funds", "Insufficient funds"),
+        ("timeout", "Timeout - phone unreachable"),
+        ("wrong_pin", "Wrong PIN entered"),
+        ("amount_mismatch", "Paid amount did not match transaction"),
+        ("provisioning_failed", "Payment received but router provisioning failed"),
+        ("other", "Other/unrecognized failure"),
+    )
+    failure_reason = models.CharField(
+        max_length=30,
+        choices=FAILURE_REASON_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Normalized reason a payment failed or a callback was rejected."
+    )
     callback_attempts = models.PositiveIntegerField(default=0)
     last_callback_attempt = models.DateTimeField(null=True, blank=True)
     metadata = models.JSONField(default=dict)
@@ -1320,6 +1343,7 @@ class Transaction(models.Model):
             models.Index(fields=["idempotency_key"]),
             models.Index(fields=["plan_id"]),
             models.Index(fields=["subscription_id"]),
+            models.Index(fields=["checkout_request_id"]),
         ]
 
     def clean(self):

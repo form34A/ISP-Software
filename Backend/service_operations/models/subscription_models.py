@@ -121,6 +121,20 @@ class Subscription(models.Model):
         null=True,
         help_text="PPPoE password (auto-generated)"
     )
+
+    hotspot_username = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Hotspot login username for this subscription (client's own username, unless it collides with another client on the same router)."
+    )
+
+    hotspot_password = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        help_text="Random per-subscription hotspot login secret, generated at activation time. Never derived from any client/database ID."
+    )
     
     # Payment Integration
     payment_reference = models.CharField(
@@ -319,6 +333,42 @@ class Subscription(models.Model):
             'time': round(time_percent, 2)
         }
     
+    def ensure_hotspot_credentials(self, router, preferred_username: str) -> tuple:
+        """
+        Generate this subscription's hotspot username/secret the first time
+        they're needed, and reuse them on every subsequent call (idempotent).
+
+        Keeps `preferred_username` (the client's own username, or a
+        `user_<id>` fallback chosen by the caller) unless it's already in use
+        by a *different* client's active hotspot session on the same router,
+        in which case a short suffix derived from this subscription's id is
+        appended to disambiguate. The password is always a fresh random
+        secret - never derived from any client/database id.
+        """
+        import secrets
+        from network_management.models.router_management_model import HotspotUser
+
+        changed_fields = []
+
+        if not self.hotspot_password:
+            self.hotspot_password = secrets.token_urlsafe(16)
+            changed_fields.append('hotspot_password')
+
+        if not self.hotspot_username:
+            username = preferred_username
+            conflict = HotspotUser.objects.filter(
+                router=router, active=True, client__username=username
+            ).exclude(client_id=self.client_id)
+            if conflict.exists():
+                username = f"{preferred_username}_{str(self.id)[:6]}"
+            self.hotspot_username = username
+            changed_fields.append('hotspot_username')
+
+        if changed_fields:
+            self.save(update_fields=changed_fields + ['updated_at'])
+
+        return self.hotspot_username, self.hotspot_password
+
     # Business Logic Methods
     def mark_payment_confirmed(self, payment_reference: str, payment_method: str):
         """Mark payment as confirmed and ready for activation"""

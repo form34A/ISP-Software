@@ -30,6 +30,7 @@ from service_operations.adapters.payment_adapter import PaymentAdapter
 from service_operations.utils.validators import validate_mac_address, validate_duration_hours
 from service_operations.utils.calculators import calculate_usage_percentage, format_bytes_human_readable
 from service_operations.signals.operation_signals import subscription_created, subscription_activated, subscription_renewed, subscription_cancelled, subscription_expired
+from service_operations.notifications import notify, NotificationEvent
 
 logger = logging.getLogger(__name__)
 
@@ -1386,7 +1387,19 @@ class SubscriptionService:
                             internet_plan_id=str(subscription.internet_plan_id),
                             expired_at=timezone.now()
                         )
-                        
+
+                        try:
+                            from authentication.models import UserAccount
+                            client_phone = UserAccount.objects.filter(id=subscription.client_id).values_list('phone_number', flat=True).first()
+                            notify(
+                                NotificationEvent.EXPIRED,
+                                client_phone,
+                                subscription_id=str(subscription.id),
+                                internet_plan_id=str(subscription.internet_plan_id),
+                            )
+                        except Exception:
+                            logger.exception(f"Failed to send expiry notification for subscription {subscription.id}")
+
                         # Create client operation
                         ClientOperation.objects.create(
                             client_id=subscription.client_id,

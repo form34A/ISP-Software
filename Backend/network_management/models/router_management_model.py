@@ -12,6 +12,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from network_management.utils.router_guard import ensure_router_manages_hotspot_users, RouterNotManagedError
+
 # Try to import MikroTik connector with fallback
 try:
     from network_management.utils.mikrotik_connector import MikroTikConnector
@@ -96,6 +98,14 @@ class Router(models.Model):
     is_default = models.BooleanField(default=False)
     captive_portal_enabled = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
+    manages_hotspot_users = models.BooleanField(
+        default=False,
+        help_text=(
+            "Whether SurfZone is allowed to create, modify, or remove hotspot/PPPoE "
+            "users on this router. Off by default - must be explicitly enabled per "
+            "router before any code path is allowed to write user entries to it."
+        ),
+    )
     callback_url = models.URLField(max_length=500, blank=True, null=True)
     max_clients = models.PositiveIntegerField(default=50, validators=[MinValueValidator(1), MaxValueValidator(1000)])
     description = models.TextField(blank=True, null=True)
@@ -565,18 +575,26 @@ class HotspotConfiguration(models.Model):
 
     def apply_configuration(self):
         """Enhanced configuration application with error handling."""
+        try:
+            ensure_router_manages_hotspot_users(self.router, "apply hotspot configuration")
+        except RouterNotManagedError as e:
+            self.configuration_errors.append(str(e))
+            self.configuration_applied = False
+            self.save()
+            return False, str(e)
+
         if not MIKROTIK_AVAILABLE:
             self.configuration_errors.append("MikroTik connector not available")
             self.configuration_applied = False
             self.save()
             return False, "MikroTik connector not available. Please install routeros-api."
-        
+
         if not self.router.connection_status == 'connected':
             self.configuration_errors.append("Router is not connected")
             self.configuration_applied = False
             self.save()
             return False, "Router is not connected"
-        
+
         try:
             connector = MikroTikConnector(
                 ip=self.router.ip,
@@ -584,7 +602,7 @@ class HotspotConfiguration(models.Model):
                 password=self.router.password,
                 port=self.router.port
             )
-            
+
             success, message, configuration = connector.configure_hotspot(
                 ssid=self.ssid,
                 welcome_message=self.welcome_message,
@@ -688,6 +706,14 @@ class PPPoEConfiguration(models.Model):
 
     def apply_configuration(self):
         """Enhanced PPPoE configuration with error handling."""
+        try:
+            ensure_router_manages_hotspot_users(self.router, "apply PPPoE configuration")
+        except RouterNotManagedError as e:
+            self.configuration_errors.append(str(e))
+            self.configuration_applied = False
+            self.save()
+            return False, str(e)
+
         if not MIKROTIK_AVAILABLE:
             self.configuration_errors.append("MikroTik connector not available")
             self.configuration_applied = False
@@ -814,6 +840,12 @@ class HotspotUser(models.Model):
     transaction = models.ForeignKey("payments.Transaction", on_delete=models.SET_NULL, null=True)
     mac = models.CharField(max_length=17)
     ip = models.GenericIPAddressField()
+    hotspot_secret = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        help_text="Random per-session hotspot login secret. Never derived from any client/database ID.",
+    )
     connected_at = models.DateTimeField(default=timezone.now)
     disconnected_at = models.DateTimeField(null=True, blank=True)
     data_used = models.BigIntegerField(default=0)
