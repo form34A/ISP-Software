@@ -546,8 +546,11 @@ import SmsAutomation from "./Pages/UserManagement/SmsAutomation";
 
 
 // Service Plans
-import PlanManagement from "./Pages/ServiceManagement/PlanManagement"; 
+import PlanManagement from "./Pages/ServiceManagement/PlanManagement";
 import ServiceOperations from "./Pages/ServiceManagement/ServiceOperations"
+
+// Captive Portal
+import PortalDesigner from "./Pages/CaptivePortal/PortalDesigner";
 
 // Network Management
 import RouterManagement from "./Pages/NetworkManagement/RouterManagement";
@@ -596,8 +599,16 @@ const routeConfig = {
       path: "service-plans/*",
       children: [
         { index: true, element: <Navigate to="plan-management" replace /> },
-        { path: "plan-management", element: <PlanManagement /> }, 
+        { path: "plan-management", element: <PlanManagement /> },
         { path: "service-operations", element: <ServiceOperations /> },
+      ],
+    },
+    // Updated to match "Captive Portal" menu
+    "captive-portal": {
+      path: "captive-portal/*",
+      children: [
+        { index: true, element: <Navigate to="portal-designer" replace /> },
+        { path: "portal-designer", element: <PortalDesigner /> },
       ],
     },
     // Updated to match "Network Infrastructure" menu

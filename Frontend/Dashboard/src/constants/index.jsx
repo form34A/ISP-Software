@@ -2,7 +2,7 @@
 
 
 
-import { 
+import {
   HomeIcon,
   UsersIcon,
   Squares2X2Icon,
@@ -10,7 +10,8 @@ import {
   CreditCardIcon,
   LifebuoyIcon,
   Cog6ToothIcon,
-  ArrowRightEndOnRectangleIcon 
+  GlobeAltIcon,
+  ArrowRightEndOnRectangleIcon
 } from "@heroicons/react/24/outline";
 
 export const menuItems = [
@@ -35,6 +36,14 @@ export const menuItems = [
     submenuItems: [
       { title: "Plan Management" },
       { title: "Service Operations" },
+    ],
+  },
+  {
+    title: "Captive Portal",
+    icon: <GlobeAltIcon className="h-5 w-5" />,
+    submenu: true,
+    submenuItems: [
+      { title: "Portal Designer" },
     ],
   },
   {
