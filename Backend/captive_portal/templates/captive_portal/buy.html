@@ -4,40 +4,164 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>SurfZone Hotspot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --ink: #0B1220;
+            --blue: #1D4ED8;
+            --blue-deep: #1746BE;
+            --slate: #64748B;
+            --slate-light: #94A3B8;
+            --mist-2: #F8FAFC;
+            --line: #E6EAF0;
+            --font-dsp: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: var(--font-body);
+            color: var(--ink);
+            background: var(--mist-2);
+            line-height: 1.6;
+            font-size: 16px;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .portal-header {
+            background: rgba(255, 255, 255, .92);
+            border-bottom: .5px solid var(--line);
+            padding: 14px 18px;
+        }
+        .brand { display: flex; align-items: center; gap: 9px; }
+        .brand-mark { width: 30px; height: 30px; flex: none; }
+        .brand-name { font-family: var(--font-dsp); font-weight: 700; font-size: 15px; }
+
+        .portal-main { max-width: 680px; margin: 0 auto; padding: 28px 18px 40px; }
+
+        .buy-card {
+            background: #fff;
+            border: .5px solid var(--line);
+            border-radius: 14px;
+            padding: 22px 20px;
+            max-width: 520px;
+            margin: 0 auto;
+        }
+
+        .plans-empty {
+            font-size: 14px;
+            color: var(--slate);
+            line-height: 1.6;
+            text-align: center;
+            padding: 18px 0;
+            margin: 0 0 20px;
+        }
+
+        .plans-list { list-style: none; margin: 0 0 20px; padding: 0; display: grid; gap: 10px; }
+        .plan-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: .5px solid var(--line);
+            border-radius: 10px;
+            padding: 13px 14px;
+            background: #fff;
+        }
+        .plan-name { font-family: var(--font-dsp); font-weight: 600; font-size: 15px; color: var(--ink); }
+        .plan-price { font-weight: 700; font-size: 15px; color: var(--blue); }
+
+        .field { margin-bottom: 16px; }
+        .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--ink); }
+        .field input {
+            width: 100%;
+            font-family: var(--font-body);
+            font-size: 15px;
+            padding: 11px 13px;
+            border: 1px solid #D5DCE8;
+            border-radius: 9px;
+            background: #fff;
+            color: var(--ink);
+        }
+        .field input:focus {
+            outline: none;
+            border-color: var(--blue);
+            box-shadow: 0 0 0 3px rgba(29, 78, 216, .14);
+        }
+
+        .btn-primary {
+            display: inline-block;
+            width: 100%;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+            padding: 12px 20px;
+            border-radius: 9px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            background: var(--blue);
+            color: #fff;
+            transition: background .15s;
+        }
+        .btn-primary:hover { background: var(--blue-deep); }
+    </style>
 </head>
 <body>
-    <header>
-        <span>SurfZone</span>
+    <header class="portal-header">
+        <span class="brand">
+            <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
+                <defs>
+                    <linearGradient id="scPortalMark" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#2563EB"/>
+                        <stop offset="1" stop-color="#1746BE"/>
+                    </linearGradient>
+                </defs>
+                <rect width="48" height="48" rx="15" fill="url(#scPortalMark)"/>
+                <g fill="#ffffff">
+                    <circle cx="16.5" cy="26" r="5.5"/>
+                    <circle cx="24" cy="22" r="7.5"/>
+                    <circle cx="31.5" cy="26" r="5.5"/>
+                    <rect x="15" y="24.5" width="18" height="8" rx="4"/>
+                </g>
+                <path d="M27 16.5 L19.5 27 H24 L21.8 34 L30 23.5 H25 Z" fill="#1D4ED8"/>
+            </svg>
+            <span class="brand-name">SurfZone</span>
+        </span>
     </header>
 
-    <main>
-        <section aria-label="Available plans">
-            {% if plans_empty %}
-                <p data-role="plans-empty">No plans are available right now. Please try again shortly.</p>
-            {% else %}
-                <ul data-role="plans-list">
-                    {% for plan in plans %}
-                        <li data-plan-id="{{ plan.id }}">
-                            <span>{{ plan.name }}</span>
-                            <span>KSH {{ plan.price }}</span>
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% endif %}
-        </section>
+    <main class="portal-main">
+        <div class="buy-card">
+            <section aria-label="Available plans">
+                {% if plans_empty %}
+                    <p data-role="plans-empty" class="plans-empty">No plans are available right now. Please try again shortly.</p>
+                {% else %}
+                    <ul data-role="plans-list" class="plans-list">
+                        {% for plan in plans %}
+                            <li data-plan-id="{{ plan.id }}" class="plan-card">
+                                <span class="plan-name">{{ plan.name }}</span>
+                                <span class="plan-price">KSH {{ plan.price }}</span>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </section>
 
-        <form method="post">
-            <label for="phone_number">Phone number</label>
-            <input type="tel" id="phone_number" name="phone_number">
+            <form method="post">
+                <div class="field">
+                    <label for="phone_number">Phone number</label>
+                    <input type="tel" id="phone_number" name="phone_number">
+                </div>
 
-            <input type="hidden" name="mac" value="{{ mac }}">
-            <input type="hidden" name="ip" value="{{ ip }}">
-            <input type="hidden" name="link-login-only" value="{{ link_login_only }}">
-            <input type="hidden" name="link-orig" value="{{ link_orig }}">
-            <input type="hidden" name="dst" value="{{ dst }}">
+                <input type="hidden" name="mac" value="{{ mac }}">
+                <input type="hidden" name="ip" value="{{ ip }}">
+                <input type="hidden" name="link-login-only" value="{{ link_login_only }}">
+                <input type="hidden" name="link-orig" value="{{ link_orig }}">
+                <input type="hidden" name="dst" value="{{ dst }}">
 
-            <button type="submit">Continue</button>
-        </form>
+                <button type="submit" class="btn-primary">Continue</button>
+            </form>
+        </div>
     </main>
 </body>
 </html>
