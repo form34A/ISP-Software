@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SurfZone Hotspot</title>
+</head>
+<body>
+    <header>
+        <span>SurfZone</span>
+    </header>
+
+    <main>
+        <section aria-label="Available plans">
+            {% if plans_empty %}
+                <p data-role="plans-empty">No plans are available right now. Please try again shortly.</p>
+            {% else %}
+                <ul data-role="plans-list">
+                    {% for plan in plans %}
+                        <li data-plan-id="{{ plan.id }}">
+                            <span>{{ plan.name }}</span>
+                            <span>KSH {{ plan.price }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </section>
+
+        <form method="post">
+            <label for="phone_number">Phone number</label>
+            <input type="tel" id="phone_number" name="phone_number">
+
+            <input type="hidden" name="mac" value="{{ mac }}">
+            <input type="hidden" name="ip" value="{{ ip }}">
+            <input type="hidden" name="link-login-only" value="{{ link_login_only }}">
+            <input type="hidden" name="link-orig" value="{{ link_orig }}">
+            <input type="hidden" name="dst" value="{{ dst }}">
+
+            <button type="submit">Continue</button>
+        </form>
+    </main>
+</body>
+</html>

@@ -239,6 +239,9 @@ urlpatterns = [
     # FIXED: SMS Automation URLs - include at the correct path
     path('api/sms/', include('sms_automation.api.urls')),
 
+    # Captive portal (server-rendered, served at the hotspot redirect domain root)
+    path('', include('captive_portal.urls')),
+
     # Health checks
     path('health/', include(('health_check.urls', 'health_check'), namespace='app_health_check')),
     

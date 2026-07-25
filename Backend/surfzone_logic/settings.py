@@ -1062,8 +1062,9 @@ INSTALLED_APPS = [
     'dashboard',
     'otp_auth',
     'service_operations',
-    'sms_automation'
-    
+    'sms_automation',
+    'captive_portal',
+
 ]
 
 # Remove development apps in production
