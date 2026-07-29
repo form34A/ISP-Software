@@ -13,9 +13,12 @@
             --blue: #1D4ED8;
             --blue-deep: #1746BE;
             --slate: #64748B;
+            --slate-2: #475569;
             --slate-light: #94A3B8;
+            --mist: #F1F5F9;
             --mist-2: #F8FAFC;
             --line: #E6EAF0;
+            --line-2: #E1E7F0;
             --font-dsp: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
             --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         }
@@ -29,27 +32,73 @@
             font-size: 16px;
             -webkit-font-smoothing: antialiased;
         }
+        a { color: var(--blue); text-decoration: none; }
+        a:hover { color: var(--blue-deep); }
+        .ic { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; flex: none; vertical-align: -.14em; }
 
+        /* header */
         .portal-header {
             background: rgba(255, 255, 255, .92);
             border-bottom: .5px solid var(--line);
             padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
-        .brand { display: flex; align-items: center; gap: 9px; }
+        .brand { display: flex; align-items: center; gap: 9px; color: var(--ink); }
+        .brand:hover { color: var(--ink); }
         .brand-mark { width: 30px; height: 30px; flex: none; }
         .brand-name { font-family: var(--font-dsp); font-weight: 700; font-size: 15px; }
+        .header-login { font-size: 13px; font-weight: 600; }
+
+        /* reconnect strip */
+        .reconnect-strip {
+            background: var(--mist);
+            border-bottom: .5px solid var(--line);
+            padding: 9px 18px;
+            text-align: center;
+            font-size: 12.5px;
+            color: var(--slate-2);
+        }
+        .reconnect-strip a { font-weight: 600; }
 
         .portal-main { max-width: 680px; margin: 0 auto; padding: 28px 18px 40px; }
 
-        .buy-card {
+        /* hero */
+        .hero { text-align: center; margin-bottom: 24px; }
+        .hero h1 { font-family: var(--font-dsp); font-weight: 700; font-size: 26px; line-height: 1.15; margin: 0 0 8px; }
+        .hero .sub { font-size: 14px; color: var(--slate); margin: 0 0 14px; }
+        .conn-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--slate-2);
             background: #fff;
             border: .5px solid var(--line);
-            border-radius: 14px;
-            padding: 22px 20px;
-            max-width: 520px;
-            margin: 0 auto;
+            border-radius: 999px;
+            padding: 6px 12px;
         }
+        .conn-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: #F59E0B; flex: none; }
 
+        /* category tabs */
+        .cat-tabs { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 20px; }
+        .cat-tab {
+            display: inline-block;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 8px 15px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--slate-2);
+        }
+        .cat-tab:hover { color: var(--blue); border-color: var(--blue); }
+        .cat-tab.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+        .cat-tab.active:hover { color: #fff; }
+
+        /* plan cards */
         .plans-empty {
             font-size: 14px;
             color: var(--slate);
@@ -58,26 +107,83 @@
             padding: 18px 0;
             margin: 0 0 20px;
         }
-
-        .plans-list { list-style: none; margin: 0 0 20px; padding: 0; display: grid; gap: 10px; }
-        .plan-card {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border: .5px solid var(--line);
-            border-radius: 10px;
-            padding: 13px 14px;
-            background: #fff;
+        .plans-grid {
+            list-style: none;
+            margin: 0 0 24px;
+            padding: 0;
+            display: grid;
+            gap: 12px;
+            grid-template-columns: 1fr;
         }
-        .plan-name { font-family: var(--font-dsp); font-weight: 600; font-size: 15px; color: var(--ink); }
-        .plan-price { font-weight: 700; font-size: 15px; color: var(--blue); }
+        @media (min-width: 560px) {
+            .plans-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        .plan-card {
+            position: relative;
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 16px 16px 14px;
+            display: flex;
+            flex-direction: column;
+        }
+        .plan-card.selected { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(29, 78, 216, .12); }
+        .plan-badge {
+            align-self: flex-start;
+            font-size: 10.5px;
+            font-weight: 700;
+            letter-spacing: .04em;
+            text-transform: uppercase;
+            color: var(--blue);
+            background: #EEF2FF;
+            border-radius: 999px;
+            padding: 3px 9px;
+            margin-bottom: 8px;
+        }
+        .plan-name { font-family: var(--font-dsp); font-weight: 600; font-size: 16px; color: var(--ink); margin: 0 0 2px; }
+        .plan-price { font-family: var(--font-dsp); font-weight: 700; font-size: 20px; color: var(--blue); margin: 0 0 10px; }
+        .plan-features { list-style: none; margin: 0 0 14px; padding: 0; font-size: 13px; color: var(--slate-2); display: grid; gap: 5px; }
+        .plan-features li { display: flex; align-items: center; gap: 6px; }
+        .plan-features .ic { color: var(--blue); font-size: 14px; }
+        .plan-choose {
+            display: block;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 9px 12px;
+            border-radius: 9px;
+            border: 1px solid var(--blue);
+            color: var(--blue);
+            margin-top: auto;
+        }
+        .plan-choose:hover { background: var(--mist); color: var(--blue-deep); }
+        .plan-card.selected .plan-choose { background: var(--blue); color: #fff; border-color: var(--blue); }
+        .plan-card.selected .plan-choose:hover { background: var(--blue-deep); }
+
+        /* pay box */
+        .buy-card {
+            background: #fff;
+            border: .5px solid var(--line);
+            border-radius: 14px;
+            padding: 22px 20px;
+            margin: 0 0 20px;
+        }
+        .paybox-empty {
+            font-size: 14px;
+            color: var(--slate);
+            text-align: center;
+            padding: 8px 0 4px;
+            margin: 0;
+        }
+        .paybox-heading { font-size: 14px; font-weight: 600; color: var(--ink); margin: 0 0 16px; }
+        .paybox-heading strong { color: var(--blue); }
 
         .field { margin-bottom: 16px; }
         .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--ink); }
         .field input {
             width: 100%;
             font-family: var(--font-body);
-            font-size: 15px;
+            font-size: 16px;
             padding: 11px 13px;
             border: 1px solid #D5DCE8;
             border-radius: 9px;
@@ -105,6 +211,32 @@
             transition: background .15s;
         }
         .btn-primary:hover { background: var(--blue-deep); }
+        .btn-primary:disabled { background: var(--slate-light); cursor: not-allowed; }
+
+        .consent-line { font-size: 11.5px; color: var(--slate-light); text-align: center; margin: 14px 0 0; line-height: 1.6; }
+        .secure-line { font-size: 12px; color: var(--slate-2); text-align: center; margin: 8px 0 0; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .secure-line .ic { color: var(--blue); }
+        .voucher-line { font-size: 12.5px; text-align: center; margin: 12px 0 0; font-weight: 600; }
+
+        /* support row */
+        .support-row {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--slate-2);
+            margin-bottom: 8px;
+        }
+        .support-row a { display: inline-flex; align-items: center; gap: 5px; }
+        .support-row .dot { color: #CBD5E1; }
+
+        /* account band */
+        .account-band { background: var(--ink); color: #fff; text-align: center; padding: 32px 18px; }
+        .account-band h2 { font-family: var(--font-dsp); font-weight: 700; font-size: 18px; margin: 0 0 8px; }
+        .account-band p { font-size: 13px; color: #B9C2D4; margin: 0 0 16px; max-width: 440px; margin-left: auto; margin-right: auto; }
+        .account-band a { color: #fff; font-weight: 600; border: 1px solid rgba(255,255,255,.35); border-radius: 9px; padding: 9px 16px; display: inline-block; }
+        .account-band a:hover { background: rgba(255,255,255,.08); color: #fff; }
     </style>
 </head>
 <body>
@@ -128,40 +260,92 @@
             </svg>
             <span class="brand-name">SurfZone</span>
         </span>
+        <a href="#" class="header-login">Log in</a>
     </header>
 
-    <main class="portal-main">
-        <div class="buy-card">
-            <section aria-label="Available plans">
-                {% if plans_empty %}
-                    <p data-role="plans-empty" class="plans-empty">No plans are available right now. Please try again shortly.</p>
-                {% else %}
-                    <ul data-role="plans-list" class="plans-list">
-                        {% for plan in plans %}
-                            <li data-plan-id="{{ plan.id }}" class="plan-card">
-                                <span class="plan-name">{{ plan.name }}</span>
-                                <span class="plan-price">KSH {{ plan.price }}</span>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% endif %}
-            </section>
+    <div class="reconnect-strip">
+        Already paid on this phone? <a href="#">Reconnect</a>
+    </div>
 
+    <main class="portal-main">
+        <section class="hero">
+            <h1>Choose your WiFi plan.</h1>
+            <p class="sub">Instant activation &middot; Pay with M-Pesa &middot; No contracts.</p>
+            <span class="conn-chip"><span class="dot"></span> Connected to SurfZone &middot; not online yet</span>
+        </section>
+
+        <nav class="cat-tabs" aria-label="Plan categories">
+            <a href="{{ all_plans_url }}" class="cat-tab{% if not active_category %} active{% endif %}">All Plans</a>
+            {% for tab in category_tabs %}
+                <a href="{{ tab.url }}" class="cat-tab{% if tab.active %} active{% endif %}">{{ tab.label }}</a>
+            {% endfor %}
+        </nav>
+
+        <section aria-label="Available plans">
+            {% if plans_empty %}
+                <p data-role="plans-empty" class="plans-empty">No plans are available right now. Please try again shortly.</p>
+            {% else %}
+                <ul data-role="plans-list" class="plans-grid">
+                    {% for plan in plans %}
+                        <li data-plan-id="{{ plan.id }}" class="plan-card{% if plan.selected %} selected{% endif %}">
+                            {% if plan.badge_label %}<span class="plan-badge">{{ plan.badge_label }}</span>{% endif %}
+                            <p class="plan-name">{{ plan.name }}</p>
+                            <p class="plan-price">KSh {{ plan.price_display }}</p>
+                            <ul class="plan-features">
+                                {% if plan.download_speed %}
+                                    <li><svg class="ic" viewBox="0 0 24 24"><path d="M4.5 11a11 11 0 0 1 15 0"/><path d="M8 14.5a6 6 0 0 1 8 0"/><circle cx="12" cy="18.5" r="1.1" fill="currentColor" stroke="none"/></svg> {{ plan.download_speed }}</li>
+                                {% endif %}
+                                {% if plan.validity_label %}
+                                    <li><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg> Valid {{ plan.validity_label }}</li>
+                                {% endif %}
+                                <li><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg> {{ plan.data_line }}</li>
+                            </ul>
+                            <a href="{{ plan.choose_url }}" class="plan-choose">{% if plan.selected %}Selected{% else %}Choose{% endif %}</a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </section>
+
+        <div class="buy-card">
             <form method="post">
-                <div class="field">
-                    <label for="phone_number">Phone number</label>
-                    <input type="tel" id="phone_number" name="phone_number">
-                </div>
+                {% if selected_plan %}
+                    <p class="paybox-heading">Paying for the <strong>{{ selected_plan.name }}</strong> package &middot; KSh {{ selected_plan.price_display }}</p>
+                    <div class="field">
+                        <label for="phone">Phone number</label>
+                        <input type="tel" id="phone" name="phone" autocomplete="tel" inputmode="tel" style="font-size: 16px;">
+                    </div>
+                    <button type="submit" class="btn-primary">Buy {{ selected_plan.name }} &middot; KSh {{ selected_plan.price_display }}</button>
+                {% else %}
+                    <p class="paybox-empty">Choose a plan above to continue.</p>
+                {% endif %}
 
                 <input type="hidden" name="mac" value="{{ mac }}">
                 <input type="hidden" name="ip" value="{{ ip }}">
                 <input type="hidden" name="link-login-only" value="{{ link_login_only }}">
                 <input type="hidden" name="link-orig" value="{{ link_orig }}">
                 <input type="hidden" name="dst" value="{{ dst }}">
-
-                <button type="submit" class="btn-primary">Continue</button>
             </form>
+
+            <p class="consent-line">By paying you agree to <a href="#">Terms</a> and <a href="#">Privacy</a>.</p>
+            <p class="secure-line">
+                <svg class="ic" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                Paid securely via M-Pesa
+            </p>
+            <p class="voucher-line"><a href="#">Have a voucher code? Redeem it</a></p>
+        </div>
+
+        <div class="support-row">
+            <a href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4 8.8 8.8 0 0 1-3.6-.8L3 20l1-5a8.3 8.3 0 0 1-.9-3.8A8.4 8.4 0 0 1 12 3a8.3 8.3 0 0 1 9 8.5z"/></svg> Help on WhatsApp</a>
+            <span class="dot">&middot;</span>
+            <a href="#">FAQ</a>
         </div>
     </main>
+
+    <section class="account-band">
+        <h2>Buy now, join later</h2>
+        <p>Create a free SurfZone account any time to track your data, save your phone number, and get faster checkout next time.</p>
+        <a href="#">Already a member? Log in</a>
+    </section>
 </body>
 </html>
