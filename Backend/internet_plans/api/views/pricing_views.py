@@ -23,7 +23,7 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from rest_framework.throttling import UserRateThrottle
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, APIException
 import logging
 
 from internet_plans.models.pricing_models import PriceMatrix, DiscountRule
@@ -69,15 +69,26 @@ class BasePricingView(APIView):
     
     def handle_exception(self, exc):
         """Handle exceptions consistently across all views"""
-        logger.error(f"Error in {self.__class__.__name__}: {exc}")
-        
         if isinstance(exc, ValidationError):
+            logger.error(f"Error in {self.__class__.__name__}: {exc}")
             return Response({
                 'success': False,
                 'error': 'Validation failed',
                 'details': exc.detail
             }, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        if isinstance(exc, APIException):
+            # NotAuthenticated, AuthenticationFailed, PermissionDenied,
+            # MethodNotAllowed, Throttled, NotFound, etc. - let DRF's own
+            # handling set the correct status code (401/403/405/429/...)
+            # and WWW-Authenticate header instead of masking all of them
+            # as a generic 500.
+            return super().handle_exception(exc)
+
+        # Anything else is a genuine unhandled error, not an expected API
+        # exception - log the real traceback so it's debuggable server-side,
+        # then return the existing masked 500 (unchanged for non-staff).
+        logger.error(f"Error in {self.__class__.__name__}: {exc}", exc_info=True)
         return Response({
             'success': False,
             'error': 'An unexpected error occurred',
