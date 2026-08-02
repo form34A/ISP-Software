@@ -53,10 +53,10 @@ def stk_callback(checkout_id, result_code=0, result_desc="The service request is
 class MpesaCallbackTestBase(TestCase):
     def setUp(self):
         self.api = APIClient()
-        self.user = UserAccount.objects.create(
-            username="hotspot_client_1",
-            phone_number="254712345678",
-            user_type="client",
+        self.user = UserAccount.objects.create_client_user(
+            phone_number="+254712345678",
+            connection_type="hotspot",
+            source="captive_portal",
         )
         self.gateway = PaymentGateway.objects.create(
             name="mpesa_paybill", is_active=True, sandbox_mode=True,
@@ -86,7 +86,10 @@ class MpesaCallbackTestBase(TestCase):
         return txn
 
     def post_callback(self, payload):
-        return self.api.post(CALLBACK_URL, payload, format="json")
+        # Callback arrives over HTTPS in production (via the Cloudflare tunnel,
+        # X-Forwarded-Proto: https), and SECURE_SSL_REDIRECT would 301 a plain
+        # HTTP request before it ever reaches the view.
+        return self.api.post(CALLBACK_URL, payload, format="json", secure=True)
 
 
 class ValidCallbackTests(MpesaCallbackTestBase):
