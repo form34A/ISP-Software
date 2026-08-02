@@ -1233,8 +1233,11 @@ def create_transaction_log_on_payment_completion(sender, instance, created, **kw
     Automatically create transaction log when payment transaction is completed
     Only for client users (hotspot/PPPoE)
     """
-    # Only process completed payments that don't have transaction logs
-    if instance.status == 'completed' and not instance.logs.exists():
+    # Only process completed payments that don't already have a 'success' log -
+    # scoped by status (not just existence) so this can't collide with the
+    # explicit create_transaction_log() call path, and so a later event with a
+    # different status (e.g. a refund) would still get its own row.
+    if instance.status == 'completed' and not instance.logs.filter(status='success').exists():
         try:
             # Check if this is a client transaction (not admin/staff)
             if not hasattr(instance, 'client') or not instance.client:
@@ -1305,6 +1308,10 @@ def _determine_payment_method(transaction_instance):
 
 def _extract_phone_number(transaction_instance):
     """Extract phone number from transaction metadata or client"""
+    from authentication.models import PhoneValidation
+
+    raw_phone = None
+
     # Try to get from transaction metadata (M-Pesa callback data)
     if hasattr(transaction_instance, 'metadata') and transaction_instance.metadata:
         metadata = transaction_instance.metadata
@@ -1312,29 +1319,37 @@ def _extract_phone_number(transaction_instance):
             # Check for M-Pesa phone number
             mpesa_phone = metadata.get('phone_number')
             if mpesa_phone:
-                return mpesa_phone
-            
-            # Check callback data
-            callback_data = metadata.get('callback_data', {})
-            if isinstance(callback_data, dict):
-                body_data = callback_data.get('Body', {})
-                if isinstance(body_data, dict):
-                    stk_callback = body_data.get('stkCallback', {})
-                    if isinstance(stk_callback, dict):
-                        callback_metadata = stk_callback.get('CallbackMetadata', {})
-                        if isinstance(callback_metadata, dict):
-                            items = callback_metadata.get('Item', [])
-                            for item in items:
-                                if isinstance(item, dict) and item.get('Name') == 'PhoneNumber':
-                                    return item.get('Value')
-    
+                raw_phone = mpesa_phone
+            else:
+                # Check callback data - Safaricom sends this as bare
+                # 2547XXXXXXXX (no +), which must be normalized below before
+                # it can pass TransactionLog.clean()'s phone format check.
+                callback_data = metadata.get('callback_data', {})
+                if isinstance(callback_data, dict):
+                    body_data = callback_data.get('Body', {})
+                    if isinstance(body_data, dict):
+                        stk_callback = body_data.get('stkCallback', {})
+                        if isinstance(stk_callback, dict):
+                            callback_metadata = stk_callback.get('CallbackMetadata', {})
+                            if isinstance(callback_metadata, dict):
+                                items = callback_metadata.get('Item', [])
+                                for item in items:
+                                    if isinstance(item, dict) and item.get('Name') == 'PhoneNumber':
+                                        raw_phone = item.get('Value')
+                                        break
+
     # Fallback to client's phone number
-    if (hasattr(transaction_instance, 'client') and 
-        transaction_instance.client and 
-        transaction_instance.client.phone_number):
-        return transaction_instance.client.phone_number
-    
-    return None
+    if not raw_phone and (
+        hasattr(transaction_instance, 'client') and
+        transaction_instance.client and
+        transaction_instance.client.phone_number
+    ):
+        raw_phone = transaction_instance.client.phone_number
+
+    if not raw_phone:
+        return None
+
+    return PhoneValidation.normalize_kenyan_phone(raw_phone)
 
 
 def _generate_description(transaction_instance):

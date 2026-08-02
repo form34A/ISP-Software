@@ -35,9 +35,15 @@ def handle_transaction_status_change(sender, instance, created, **kwargs):
             if not instance.logs.exists():
                 # COMPLETE access type determination for ALL payment methods
                 access_type = _determine_complete_access_type(instance)
-                
-                instance.create_transaction_log(status='success', access_type=access_type)
-                logger.info(f"Created transaction log for completed payment {instance.reference}")
+
+                log = instance.create_transaction_log(status='success', access_type=access_type)
+                if log is not None:
+                    logger.info(f"Created transaction log for completed payment {instance.reference}")
+                else:
+                    logger.warning(
+                        f"Transaction log NOT created for completed payment {instance.reference} "
+                        f"(create_transaction_log returned None - see preceding error log)"
+                    )
             else:
                 # Update existing transaction log
                 log = instance.logs.first()

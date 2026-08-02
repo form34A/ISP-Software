@@ -1357,19 +1357,30 @@ class Transaction(models.Model):
 
     def create_transaction_log(self, status='pending', access_type='hotspot'):
         """
-        Create a linked transaction log for this payment
+        Create a linked transaction log for this payment.
+
+        Idempotent per (transaction, status): multiple signal handlers and
+        callers can race to log the same event (e.g. a completed payment),
+        so this returns the existing row for that status instead of ever
+        creating a second one. Scoping by status (not just by transaction)
+        leaves room for a later event with a different status - e.g. a
+        refund - to still get its own row.
         """
         from payments.models.transaction_log_model import TransactionLog
-        
+
+        existing = self.logs.filter(status=status).first()
+        if existing:
+            return existing
+
         try:
             # Determine payment method based on gateway
             payment_method = self._determine_payment_method()
-            
+
             # Get phone number from client (using authentication app's method)
             phone_number = None
             if self.client and self.client.is_client:
                 phone_number = self.client.get_phone_display()
-            
+
             transaction_log = TransactionLog.objects.create(
                 payment_transaction=self,
                 client=self.client,
@@ -1377,7 +1388,6 @@ class Transaction(models.Model):
                 status=status,
                 payment_method=payment_method,
                 access_type=access_type,
-                user=self.client,
                 internet_plan=self.plan,
                 subscription=self.subscription,
                 phone_number=phone_number,

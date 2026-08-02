@@ -110,6 +110,9 @@ class ValidCallbackTests(MpesaCallbackTestBase):
         self.assertTrue(txn.subscription.activation_successful)
         self.assertTrue(txn.subscription.hotspot_password)  # random secret was generated
         mock_provision.assert_called_once()
+        # Regression lock: multiple signal handlers + the explicit callback-view
+        # call all race to log this completion - exactly one row must survive.
+        self.assertEqual(txn.logs.count(), 1)
 
     @patch(PROVISION_TARGET)
     def test_replayed_callback_does_not_double_activate(self, mock_provision):
@@ -129,6 +132,8 @@ class ValidCallbackTests(MpesaCallbackTestBase):
         txn.refresh_from_db()
         self.assertEqual(txn.status, "completed")
         self.assertEqual(Subscription.objects.filter(payment_reference=txn.reference).count(), 1)
+        # Regression lock: replaying the callback must not create a second log either.
+        self.assertEqual(txn.logs.count(), 1)
 
 
 class RejectionTests(MpesaCallbackTestBase):

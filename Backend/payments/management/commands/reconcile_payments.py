@@ -70,6 +70,7 @@ class Command(BaseCommand):
             self._reconcile_stale_transactions(options['stale_minutes'], options['max_transactions'])
         if not options['skip_subscriptions']:
             self._retry_unprovisioned_subscriptions(options['max_subscriptions'])
+            self._retry_completed_without_subscription(options['max_subscriptions'])
 
     # ---- Sweep 1: query Safaricom for transactions with no callback ----
 
@@ -258,3 +259,37 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(f"Subscription {sub.id}: provisioned successfully"))
             else:
                 self.stderr.write(self.style.WARNING(f"Subscription {sub.id}: still failing: {error}"))
+
+    # ---- Sweep 3: completed payments that never got a subscription at all ----
+
+    def _retry_completed_without_subscription(self, limit):
+        """
+        Sweep 2 above only looks at Subscriptions already in pending_activation -
+        it can never find a Transaction that completed but activate_and_provision
+        never created a Subscription for at all (e.g. client/plan went missing,
+        or subscription creation itself raised). This sweep is what makes those
+        findable and retryable instead of silently stuck.
+        """
+        from service_operations.services.payment_activation import activate_and_provision
+
+        txns = list(
+            Transaction.objects.filter(
+                status='completed',
+                subscription__isnull=True,
+            ).order_by('created_at')[:limit]
+        )
+
+        self.stdout.write(f"Found {len(txns)} completed transaction(s) with no subscription to retry")
+
+        for txn in txns:
+            try:
+                success, error = activate_and_provision(txn)
+            except Exception as e:
+                self.stderr.write(self.style.ERROR(f"Transaction {txn.reference}: retry raised: {e}"))
+                logger.exception(f"reconcile_payments: retry raised for transaction {txn.reference}")
+                continue
+
+            if success:
+                self.stdout.write(self.style.SUCCESS(f"Transaction {txn.reference}: subscription created and provisioned"))
+            else:
+                self.stderr.write(self.style.WARNING(f"Transaction {txn.reference}: still failing: {error}"))

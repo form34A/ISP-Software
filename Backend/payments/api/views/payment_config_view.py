@@ -5240,6 +5240,10 @@ class MpesaCallbackView(APIView):
 
         if not success:
             logger.error(f"Payment for {txn.reference} recorded but provisioning failed: {error}")
+            txn.failure_reason = 'provisioning_failed'
+            txn.metadata = txn.metadata or {}
+            txn.metadata['activation_error'] = error
+            txn.save(update_fields=['failure_reason', 'metadata'])
 
         # Always acknowledge success to Safaricom once payment is recorded -
         # a provisioning failure is ours to retry, not Safaricom's to redeliver.
