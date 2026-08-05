@@ -208,10 +208,12 @@ const ActiveRouterPanel = ({
 }) => {
   const themeClasses = getThemeClasses(theme);
   
-  const activeHotspotUsers = Array.isArray(hotspotUsers) ? hotspotUsers.filter(user => user.active).length : 0;
-  const activePPPoEUsers = Array.isArray(pppoeUsers) ? pppoeUsers.filter(user => user.active).length : 0;
-  
   const stats = routerStats?.[activeRouter?.id]?.latest || {};
+  // Live RouterOS session counts (same object Connected Clients reads) -
+  // not HotspotUser/PPPoEUser accounts. Those tables are legitimately
+  // empty for freeisp/manual sessions SurfZone never provisioned.
+  const activeHotspotUsers = stats.hotspot_clients || 0;
+  const activePPPoEUsers = stats.pppoe_clients || 0;
   const systemInfo = stats.system_info || {};
 
   const getStatusColor = (status) => {

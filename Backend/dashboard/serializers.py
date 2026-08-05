@@ -374,7 +374,7 @@ from payments.models.payment_reconciliation_model import ReconciliationStats
 from internet_plans.models.plan_models import InternetPlan, PlanTemplate
 from service_operations.models.subscription_models import Subscription
 from network_management.models.router_management_model import (
-    Router, RouterStats, HotspotUser, PPPoEUser, RouterHealthCheck,
+    Router, RouterStats, RouterHealthCheck,
     RouterConnectionTest
 )
 from network_management.models.wan_sample_model import WanSample
@@ -522,12 +522,39 @@ class DashboardDataService:
         return f"{currency} {amount:,.0f}"
 
     @staticmethod
+    def _get_live_session_totals():
+        """
+        Sum of currently-connected hotspot/PPPoE sessions, straight from each
+        router's latest RouterStats row - this is live RouterOS session data
+        (what "Connected Clients" / ActiveRouterPanel display), not
+        HotspotUser/PPPoEUser account rows. Those only cover
+        SurfZone-provisioned subscriptions and are legitimately empty for
+        freeisp/manual sessions, so counting them undercounts who's actually
+        online.
+
+        Same 10-minute staleness window as get_router_metrics()'s
+        online_routers, so a router that's gone quiet doesn't leave a stale
+        session count in the total. Returns (hotspot_count, pppoe_count).
+        """
+        stale_cutoff = timezone.now() - timedelta(minutes=10)
+        online_routers = Router.objects.filter(
+            is_active=True, connection_status='connected', last_seen__gte=stale_cutoff
+        )
+
+        hotspot_total = 0
+        pppoe_total = 0
+        for router in online_routers:
+            latest = RouterStats.objects.filter(router=router).order_by('-timestamp').first()
+            if latest:
+                hotspot_total += latest.hotspot_clients
+                pppoe_total += latest.pppoe_clients
+        return hotspot_total, pppoe_total
+
+    @staticmethod
     def get_client_metrics():
         """Get comprehensive client and user metrics with real data."""
         try:
-            # Active users from network management
-            active_hotspot_users = HotspotUser.objects.filter(active=True).count()
-            active_pppoe_users = PPPoEUser.objects.filter(active=True).count()
+            active_hotspot_users, active_pppoe_users = DashboardDataService._get_live_session_totals()
             total_active_users = active_hotspot_users + active_pppoe_users
             
             # Client counts from subscriptions
@@ -671,12 +698,10 @@ class DashboardDataService:
                 total_capacity=Sum('max_clients')
             )['total_capacity'] or 0
 
-            # Router has no current_clients field; mirror Router.get_active_users_count()
-            # (hotspot_users + pppoe_users active counts) across the whole queryset.
-            current_load = (
-                HotspotUser.objects.filter(router__in=routers, active=True).count() +
-                PPPoEUser.objects.filter(router__in=routers, active=True).count()
-            )
+            # Live session count, not HotspotUser/PPPoEUser accounts - same
+            # source and staleness window as get_client_metrics().
+            hotspot_total, pppoe_total = DashboardDataService._get_live_session_totals()
+            current_load = hotspot_total + pppoe_total
 
             load_percentage = (current_load / total_capacity * 100) if total_capacity > 0 else 0
 
