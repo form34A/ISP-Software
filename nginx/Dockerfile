@@ -6,7 +6,7 @@ ENV VITE_API_URL=${VITE_API_URL}
 COPY Frontend/Dashboard/package.json Frontend/Dashboard/package-lock.json ./
 RUN npm install
 COPY Frontend/Dashboard/ ./
-RUN NODE_OPTIONS=--max-old-space-size=4096 npm run build -- --outDir dist --emptyOutDir
+RUN NODE_OPTIONS=--max-old-space-size=3072 npm run build -- --outDir dist --emptyOutDir
 
 # ---- Stage 2: build landing ----
 FROM node:20-slim AS landing
@@ -16,7 +16,7 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 COPY Frontend/Landingpage/package.json Frontend/Landingpage/package-lock.json ./
 RUN npm install
 COPY Frontend/Landingpage/ ./
-RUN NODE_OPTIONS=--max-old-space-size=4096 npm run build -- --outDir dist --emptyOutDir
+RUN NODE_OPTIONS=--max-old-space-size=3072 npm run build -- --outDir dist --emptyOutDir
 
 # ---- Stage 3: nginx serving both + proxy to backend ----
 FROM nginx:alpine
