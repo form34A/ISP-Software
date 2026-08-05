@@ -342,8 +342,9 @@ import {
 } from "lucide-react";
 import CustomButton from "../Common/CustomButton";
 import { getThemeClasses } from  "../../../../components/ServiceManagement/Shared/components"
+import { formatPercent } from "../../../../utils/format";
 
-const RouterCard = ({ 
+const RouterCard = ({
   router, 
   isExpanded, 
   routerStats = {}, 
@@ -531,7 +532,7 @@ const RouterCard = ({
                 <div className="flex items-center">
                   <HardDrive className="w-4 h-4 mr-2" />
                   <span className={getPerformanceColor(stats.memory)}>
-                    RAM: {stats.memory ? `${stats.memory}%` : "N/A"}
+                    RAM: {stats.memory ? formatPercent(stats.memory) : "N/A"}
                   </span>
                 </div>
                 <div className="flex items-center">
@@ -697,8 +698,8 @@ const RouterCard = ({
                       color: getPerformanceColor(stats.cpu)
                     },
                     { 
-                      label: "Memory Usage", 
-                      value: stats.memory ? `${stats.memory}%` : "N/A", 
+                      label: "Memory Usage",
+                      value: stats.memory ? formatPercent(stats.memory) : "N/A",
                       icon: HardDrive,
                       color: getPerformanceColor(stats.memory)
                     },

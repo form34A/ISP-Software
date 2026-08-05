@@ -542,8 +542,9 @@ import { FaMemory } from "react-icons/fa";
 import { IoMdAlert } from "react-icons/io";
 import { format } from "date-fns";
 import { motion } from "framer-motion";
+import { formatPercent, formatSpeed, formatMs } from "../../utils/format";
 
-const SystemLoadMonitor = ({ 
+const SystemLoadMonitor = ({
   data = {}, 
   theme = "light", 
   onLoad = () => {}, 
@@ -598,7 +599,7 @@ const SystemLoadMonitor = ({
               isCritical ? "text-red-500" : isWarning ? "text-amber-500" : "text-blue-500"
             }`}
           >
-            {percentage}%
+            {formatPercent(percentage)}
           </span>
           <span>100%</span>
         </div>
@@ -606,9 +607,10 @@ const SystemLoadMonitor = ({
     );
   };
 
-  const renderResponseTimeGauge = (value) => {
-    const isCritical = value > 500;
-    const isWarning = value > 300 && !isCritical;
+  const renderResponseTimeGauge = (msValue) => {
+    const seconds = (Number(msValue) || 0) / 1000;
+    const isCritical = seconds > 0.5;
+    const isWarning = seconds > 0.3 && !isCritical;
 
     return (
       <div className="mt-3 sm:mt-4">
@@ -619,21 +621,21 @@ const SystemLoadMonitor = ({
             className={`h-2 sm:h-2.5 rounded-full transition-all duration-500 ${
               isCritical ? "bg-red-500" : isWarning ? "bg-amber-400" : "bg-blue-500"
             }`}
-            style={{ width: `${Math.min(value / 10, 100)}%` }}
+            style={{ width: `${Math.min(seconds * 100, 100)}%` }}
           ></div>
         </div>
         <div className={`flex justify-between mt-1 text-xs ${
           theme === "dark" ? "text-gray-400" : "text-gray-500"
         }`}>
-          <span>0ms</span>
+          <span>0s</span>
           <span
             className={`font-medium ${
               isCritical ? "text-red-500" : isWarning ? "text-amber-500" : "text-blue-500"
             }`}
           >
-            {value}ms
+            {formatMs(msValue)}
           </span>
-          <span>1000ms</span>
+          <span>1s</span>
         </div>
       </div>
     );
@@ -666,16 +668,16 @@ const SystemLoadMonitor = ({
               isCritical ? "text-red-500" : isWarning ? "text-amber-500" : "text-blue-500"
             }`}
           >
-            {total.toFixed(1)} Mbps
+            {formatSpeed(total)}
           </span>
-          <span>{totalBandwidth} Mbps</span>
+          <span>{formatSpeed(totalBandwidth)}</span>
         </div>
         <div className={`mt-1 text-xs ${
           theme === "dark" ? "text-gray-400" : "text-gray-500"
         }`}>
-          <span className="text-blue-500">↑ {upload.toFixed(1)} Mbps</span>
+          <span className="text-blue-500">↑ {formatSpeed(upload)}</span>
           <span className="mx-2">/</span>
-          <span className="text-green-500">↓ {download.toFixed(1)} Mbps</span>
+          <span className="text-green-500">↓ {formatSpeed(download)}</span>
         </div>
       </div>
     );
@@ -686,7 +688,7 @@ const SystemLoadMonitor = ({
       key: "api",
       icon: <FiClock className="text-xl sm:text-2xl" />,
       title: "API Response Time",
-      value: `${data.api_response_time || 0}ms`,
+      value: formatMs(data.api_response_time || 0),
       comparison: data.api_comparison || "No previous data",
       bgColor: theme === "dark" ? "bg-indigo-900/50" : "bg-indigo-100",
       iconColor: theme === "dark" ? "text-indigo-300" : "text-indigo-600",
@@ -694,14 +696,14 @@ const SystemLoadMonitor = ({
       trend: "down",
       trendValue: "10.1%",
       gauge: renderResponseTimeGauge(data.api_response_time || 0),
-      status: (data.api_response_time || 0) > 500 ? "critical" : (data.api_response_time || 0) > 300 ? "warning" : "normal",
+      status: ((data.api_response_time || 0) / 1000) > 0.5 ? "critical" : ((data.api_response_time || 0) / 1000) > 0.3 ? "warning" : "normal",
     },
     {
       key: "bandwidth",
       icon: <FiWifi className="text-xl sm:text-2xl" />,
       title: "Bandwidth Usage",
       value: (data.bandwidth_used != null && data.bandwidth_total != null)
-        ? `${data.bandwidth_used.toFixed(1)}/${data.bandwidth_total.toFixed(1)} Mbps`
+        ? `${formatSpeed(data.bandwidth_used)} / ${formatSpeed(data.bandwidth_total)}`
         : "No recent data",
       comparison: data.bandwidth_comparison || "No previous data",
       bgColor: theme === "dark" ? "bg-teal-900/50" : "bg-teal-100",
@@ -718,7 +720,7 @@ const SystemLoadMonitor = ({
       key: "cpu",
       icon: <FiCpu className="text-xl sm:text-2xl" />,
       title: "CPU Load",
-      value: `${data.cpu_load || 0}%`,
+      value: formatPercent(data.cpu_load),
       comparison: data.cpu_comparison || "No previous data",
       bgColor: theme === "dark" ? "bg-amber-900/50" : "bg-amber-100",
       iconColor: theme === "dark" ? "text-amber-300" : "text-amber-600",
@@ -732,7 +734,7 @@ const SystemLoadMonitor = ({
       key: "memory",
       icon: <FaMemory className="text-xl sm:text-2xl" />,
       title: "Memory Usage",
-      value: `${data.memory_load || 0}%`,
+      value: formatPercent(data.memory_load),
       comparison: data.memory_comparison || "No previous data",
       bgColor: theme === "dark" ? "bg-purple-900/50" : "bg-purple-100",
       iconColor: theme === "dark" ? "text-purple-300" : "text-purple-600",
@@ -773,7 +775,7 @@ const SystemLoadMonitor = ({
       icon: <FiActivity className="text-xl sm:text-2xl" />,
       title: "Network Throughput",
       value: (data.upload_throughput != null && data.download_throughput != null)
-        ? `${data.upload_throughput.toFixed(1)}↑ / ${data.download_throughput.toFixed(1)}↓ Mbps`
+        ? `${formatSpeed(data.upload_throughput)}↑ / ${formatSpeed(data.download_throughput)}↓`
         : "No recent data",
       comparison: data.throughput_comparison || "No previous data",
       bgColor: theme === "dark" ? "bg-cyan-900/50" : "bg-cyan-100",

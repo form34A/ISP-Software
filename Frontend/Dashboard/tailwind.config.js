@@ -152,6 +152,12 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      // Adds the `xs:` variant (already used ~44x across src/ but silently
+      // dead until now). Living under `extend` merges it in rather than
+      // replacing the default sm/md/lg/xl/2xl breakpoints.
+      screens: {
+        xs: '480px',
+      },
       fontFamily: {
         sans: ["Inter", "Poppins", "sans-serif"],
       },

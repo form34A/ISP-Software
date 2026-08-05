@@ -188,6 +188,7 @@ import {
 import CustomButton from "../Common/CustomButton";
 import { getThemeClasses } from "../../../../components/ServiceManagement/Shared/components"
 import { getConnectionStatusIcon, getConfigStatusIcon, getServiceIcon } from "../../utils/iconUtils";
+import { formatPercent } from "../../../../utils/format";
 
 const ActiveRouterPanel = ({
   activeRouter,
@@ -305,7 +306,7 @@ const ActiveRouterPanel = ({
       <div className="space-y-4">
         {/* Status Overview */}
         <div className={`p-4 rounded-lg border ${getStatusBackground(activeRouter.connection_status)}`}>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="text-center">
               <div className="flex items-center justify-center space-x-2 mb-1">
                 {getConnectionStatusIcon(activeRouter.connection_status, "w-4 h-4")}
@@ -357,7 +358,7 @@ const ActiveRouterPanel = ({
               <Activity className="w-4 h-4 mr-2" />
               Performance Metrics
             </h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+            <div className="grid grid-cols-2 gap-4 text-center">
               <div>
                 <Cpu className="w-6 h-6 mx-auto mb-1 text-blue-500" />
                 <p className={`text-xs ${themeClasses.text.secondary}`}>CPU Usage</p>
@@ -365,7 +366,7 @@ const ActiveRouterPanel = ({
                   (stats.cpu || 0) > 80 ? 'text-red-500' : 
                   (stats.cpu || 0) > 60 ? 'text-yellow-500' : 'text-green-500'
                 }`}>
-                  {stats.cpu || 0}%
+                  {formatPercent(stats.cpu)}
                 </p>
               </div>
               <div>
@@ -375,7 +376,7 @@ const ActiveRouterPanel = ({
                   (stats.memory || 0) > 80 ? 'text-red-500' : 
                   (stats.memory || 0) > 60 ? 'text-yellow-500' : 'text-green-500'
                 }`}>
-                  {stats.memory || 0}%
+                  {formatPercent(stats.memory)}
                 </p>
               </div>
               <div>

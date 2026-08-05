@@ -7,8 +7,9 @@ import {
 } from 'lucide-react';
 import CustomButton from '../Common/CustomButton';
 import { getThemeClasses } from '../../../../components/ServiceManagement/Shared/components';
+import { formatPercent } from '../../../../utils/format';
 
-const DiagnosticsPanel = ({ 
+const DiagnosticsPanel = ({
   router, 
   theme = "light", 
   diagnosticsData = {}, 
@@ -163,8 +164,8 @@ const DiagnosticsPanel = ({
                   description: 'Current CPU utilization'
                 },
                 { 
-                  label: 'Memory Usage', 
-                  value: diagnostics.performance?.memory_usage ? `${diagnostics.performance.memory_usage}%` : 'N/A',
+                  label: 'Memory Usage',
+                  value: diagnostics.performance?.memory_usage ? formatPercent(diagnostics.performance.memory_usage) : 'N/A',
                   icon: HardDrive,
                   description: 'RAM utilization'
                 },
@@ -232,7 +233,7 @@ const DiagnosticsPanel = ({
                     <div>
                       <div className="flex justify-between text-sm mb-1">
                         <span className={themeClasses.text.secondary}>Memory Usage</span>
-                        <span className={themeClasses.text.primary}>{diagnostics.performance.memory_usage}%</span>
+                        <span className={themeClasses.text.primary}>{formatPercent(diagnostics.performance.memory_usage)}</span>
                       </div>
                       <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                         <div 

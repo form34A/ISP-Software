@@ -328,6 +328,7 @@ import CustomModal from "../Common/CustomModal";
 import StatsCard from "../Common/StatsCard";
 import { getThemeClasses } from "../../../../components/ServiceManagement/Shared/components";
 import { formatBytes, formatUptime, formatSpeed, getHealthColor } from "../../utils/networkUtils";
+import { formatPercent } from "../../../../utils/format";
 
 const RouterStats = ({ 
   isOpen, 
@@ -389,22 +390,20 @@ const RouterStats = ({
       <div className="space-y-4 sm:space-y-6 max-h-[70vh] sm:max-h-[80vh] overflow-y-auto">
         {/* Key Metrics Grid */}
         <div className="grid grid-cols-2 xs:grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
-          <StatsCard 
-            title="CPU Usage" 
-            value={enhancedStats.cpu || enhancedStats.cpu_load || 0} 
-            unit="%"
-            icon={<Cpu className="w-4 h-4 sm:w-5 sm:h-5" />} 
+          <StatsCard
+            title="CPU Usage"
+            value={formatPercent(enhancedStats.cpu || enhancedStats.cpu_load)}
+            icon={<Cpu className="w-4 h-4 sm:w-5 sm:h-5" />}
             theme={theme} 
             color="blue"
             subtitle={getHealthColor(enhancedStats.cpu).includes("red") ? "High" : "Normal"}
             className="min-h-[80px] sm:min-h-[90px]"
           />
           
-          <StatsCard 
-            title="Memory Usage" 
-            value={enhancedStats.memory_usage} 
-            unit="%"
-            icon={<HardDrive className="w-4 h-4 sm:w-5 sm:h-5" />} 
+          <StatsCard
+            title="Memory Usage"
+            value={formatPercent(enhancedStats.memory_usage)}
+            icon={<HardDrive className="w-4 h-4 sm:w-5 sm:h-5" />}
             theme={theme} 
             color="purple"
             className="min-h-[80px] sm:min-h-[90px]"
@@ -533,7 +532,7 @@ const RouterStats = ({
             <div>
               <div className="flex justify-between text-xs sm:text-sm mb-1">
                 <span className={themeClasses.text.primary}>CPU Usage</span>
-                <span className={getHealthColor(enhancedStats.cpu)}>{enhancedStats.cpu || 0}%</span>
+                <span className={getHealthColor(enhancedStats.cpu)}>{formatPercent(enhancedStats.cpu)}</span>
               </div>
               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 sm:h-3">
                 <div 
@@ -550,7 +549,7 @@ const RouterStats = ({
             <div>
               <div className="flex justify-between text-xs sm:text-sm mb-1">
                 <span className={themeClasses.text.primary}>Memory Usage</span>
-                <span className={getHealthColor(enhancedStats.memory_usage)}>{enhancedStats.memory_usage}%</span>
+                <span className={getHealthColor(enhancedStats.memory_usage)}>{formatPercent(enhancedStats.memory_usage)}</span>
               </div>
               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 sm:h-3">
                 <div 

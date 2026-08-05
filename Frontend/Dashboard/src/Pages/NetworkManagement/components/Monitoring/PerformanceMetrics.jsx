@@ -391,11 +391,19 @@ import { getThemeClasses } from "../../../../components/ServiceManagement/Shared
 import { getHealthColor } from "../../utils/networkUtils";
 import { useNetworkData } from "../hooks/useNetworkData";
 import CustomButton from "../Common/CustomButton";
+import { formatSpeed } from "../../../../utils/format";
 
 // Stable reference so useNetworkData's fetchInitialData useCallback doesn't
 // get a new identity every render (a fresh [] literal here caused an
 // infinite fetch loop against the backend).
 const EMPTY_ROUTERS = [];
+
+// Throughput carries its own unit (Mbps/Gbps auto-promotion); every other
+// metric just appends its static `unit` string to the raw number.
+const formatMetricValue = (metric, value) => {
+  if (metric.key === "throughput") return formatSpeed(value);
+  return `${value || 0}${metric.unit ? ` ${metric.unit}` : ""}`;
+};
 
 const PerformanceMetrics = ({
   activeRouter,
@@ -671,7 +679,7 @@ const PerformanceMetrics = ({
                             ? getHealthColor(metric.current) 
                             : getHealthColor(100 - metric.current)
                         }`}>
-                          {metric.current || 0}{metric.unit ? ` ${metric.unit}` : ''}
+                          {formatMetricValue(metric, metric.current)}
                         </p>
                       </div>
                     </div>
@@ -702,7 +710,7 @@ const PerformanceMetrics = ({
                   {/* Historical context */}
                   {metric.previous > 0 && (
                     <p className={`text-xs ${themeClasses.text.tertiary} truncate`}>
-                      Previous: {metric.previous}{metric.unit ? ` ${metric.unit}` : ''}
+                      Previous: {formatMetricValue(metric, metric.previous)}
                     </p>
                   )}
                   
