@@ -877,14 +877,14 @@ class DashboardDataService:
 
             return {
                 "api_response_time": int((api_response_data['avg_response'] or 0) * 1000),
-                "api_comparison": f"Max: {int((api_response_data['max_response'] or 0) * 1000)}ms",
+                "api_comparison": f"Max: {(api_response_data['max_response'] or 0):.1f}s",
                 "bandwidth_used": bandwidth_used,
                 "bandwidth_total": bandwidth_total,
                 "bandwidth_comparison": bandwidth_trend or "No recent data",
                 "cpu_load": float(router_stats['avg_cpu'] or 0),
-                "cpu_comparison": f"Peak: {router_stats['max_cpu'] or 0}%",
+                "cpu_comparison": f"Peak: {(router_stats['max_cpu'] or 0):.1f}%",
                 "memory_load": float(router_stats['avg_memory'] or 0),
-                "memory_comparison": f"Peak: {router_stats['max_memory'] or 0}%",
+                "memory_comparison": f"Peak: {(router_stats['max_memory'] or 0):.1f}%",
                 "router_status": router_metrics['router_status'],
                 "router_uptime": f"{router_metrics['online_routers']}/{router_metrics['total_routers']} online",
                 "upload_throughput": upload_throughput,
