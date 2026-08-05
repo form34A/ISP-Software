@@ -733,16 +733,16 @@ class DashboardDataService:
     def get_plan_metrics():
         """Get internet plan performance metrics with real subscription data."""
         try:
-            subscriptions = Subscription.objects.select_related('internet_plan')
+            subscriptions = Subscription.objects.all()
             active_subscriptions = subscriptions.filter(status='active', is_active=True)
-            
+
             plan_performance = []
             for plan in InternetPlan.objects.filter(active=True)[:8]:  # Top 8 active plans
-                plan_subs = active_subscriptions.filter(internet_plan=plan)
-                
+                plan_subs = active_subscriptions.filter(internet_plan_id=plan.id)
+
                 # Revenue from successful transactions for this plan
                 plan_revenue = TransactionLog.objects.filter(
-                    subscription__internet_plan=plan, 
+                    internet_plan=plan,
                     status='success'
                 ).aggregate(total=Sum('amount'))['total'] or 0
                 
@@ -965,7 +965,7 @@ class DashboardDataService:
                 
                 # Revenue for this plan category
                 plan_revenue = TransactionLog.objects.filter(
-                    subscription__internet_plan=plan,
+                    internet_plan=plan,
                     status='success'
                 ).aggregate(total=Sum('amount'))['total'] or 0
                 

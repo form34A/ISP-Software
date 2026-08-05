@@ -1038,7 +1038,7 @@ class DashboardView(APIView):
             return [
                 {
                     "month": entry['day'].strftime("%b %d"),
-                    "subscriptions": entry['count']
+                    "value": entry['count']
                 } for entry in daily_subs[-7:]  # Last 7 days
             ]
         except Exception as e:
