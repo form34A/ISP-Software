@@ -767,6 +767,7 @@ import ClientTypeBreakdown from "../../components/DashboardComponents/ClientType
 import { useTheme } from "../../context/ThemeContext";
 import api from "../../api";
 import { motion, AnimatePresence } from "framer-motion";
+import { formatPercent } from "../../utils/format";
 
 // Constants
 const CURRENCY = "KES";
@@ -1053,7 +1054,7 @@ const GridCard = React.memo(({ item, theme }) => (
           ) : (
             <FiTrendingDown className="mr-1 w-3 h-3" />
           )}
-          {Math.abs(item.rate)}%
+          {formatPercent(Math.abs(item.rate))}
         </div>
       </div>
 

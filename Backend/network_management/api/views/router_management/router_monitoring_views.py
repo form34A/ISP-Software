@@ -70,9 +70,14 @@ class RouterStatsView(APIView):
 
                 cpu, memory_percent, temperature = parse_system_resource(system)
                 uptime = system.get("uptime", "0")
-                interfaces = api.get_resource("/interface").get() or [{}]
-                rx = safe_float(interfaces[0].get("rx-byte", 0))
-                throughput_mb = rx / 1024 / 1024 if rx else 0
+                # Throughput intentionally left at 0 here - the previous
+                # computation read /interface's cumulative rx-byte counter
+                # and mislabeled it as a Mbps rate (it only ever grows since
+                # boot, and interfaces[0] isn't reliably the WAN interface
+                # anyway). sample_wan/WanSample owns real WAN throughput on
+                # its own schedule; a single-snapshot counter here can't
+                # yield a rate.
+                throughput_mb = 0.0
                 total_hdd = safe_float(system.get("total-hdd-space", 1))
                 free_hdd = safe_float(system.get("free-hdd-space", 0))
                 disk_percent = (free_hdd / total_hdd * 100) if total_hdd else 0
