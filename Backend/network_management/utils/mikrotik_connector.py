@@ -1766,6 +1766,7 @@ import re
 import sys
 import ssl
 import datetime
+import ipaddress
 from typing import Dict, Tuple, Optional, Any, List
 
 # Django imports with better fallbacks
@@ -3264,6 +3265,952 @@ class MikroTikConnector:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit with proper cleanup."""
         self.disconnect()
+
+
+HOTSPOT_OWNED_TAG = "surfzone-hotspot"
+
+# Object types confirmed this session, via real RouterOS API rejections, to
+# not support `comment` on .add()/.set() at all on this device's RouterOS
+# build. Checked proactively so we don't round-trip a doomed write for
+# these; anything not in this set still goes through the self-heal below.
+_NO_COMMENT_SUPPORT_PATHS = {'/ip/hotspot/profile', '/ip/hotspot', '/ip/hotspot/user/profile'}
+
+_UNKNOWN_PARAM_RE = re.compile(r'unknown parameter ([\w-]+)')
+
+# Fields that carry real functionality - if RouterOS rejects any of these,
+# that's a stop-and-report condition, never something to silently drop.
+_FUNCTIONAL_FIELDS = {
+    'name', 'interface', 'address-pool', 'profile', 'login-by',
+    'rate-limit', 'shared-users', 'session-timeout',
+    'protocol', 'dst-port', 'action', 'chain',
+    'mode', 'security-profile', 'ssid',
+}
+
+
+def _comment_known_supported(api, path):
+    """
+    Best-effort, read-only signal from an existing row: True if some row of
+    this type already carries a non-empty comment (conclusive - RouterOS
+    wouldn't have accepted it otherwise). Returns None when inconclusive
+    (no row has one set) - absence doesn't prove the field is invalid, only
+    that it's unused, so this is a hint, not a verdict.
+    """
+    try:
+        rows = api.get_resource(path).get() or []
+        if any(r.get('comment') for r in rows):
+            return True
+    except Exception:
+        pass
+    return None
+
+
+def _write(api, path, method, kwargs):
+    """
+    Issue one .add()/.set() call, schema-aware for `comment`:
+    - if this path is already known (this session) not to support comment,
+      it's dropped before ever attempting the call.
+    - otherwise, if RouterOS rejects the call specifically with "unknown
+      parameter comment", retry once without it - a self-heal for object
+      types whose comment support hasn't been seen yet.
+    - a rejection naming any other parameter (a functional field) is not
+      caught here - it propagates to the caller unchanged, which is the
+      stop-and-report path.
+    Returns the kwargs dict actually sent (post-heal), so the caller can
+    report accurately what was written.
+    """
+    if path in _NO_COMMENT_SUPPORT_PATHS and 'comment' in kwargs:
+        kwargs = {k: v for k, v in kwargs.items() if k != 'comment'}
+
+    try:
+        getattr(api.get_resource(path), method)(**kwargs)
+        return kwargs
+    except Exception as e:
+        m = _UNKNOWN_PARAM_RE.search(str(e))
+        bad_param = m.group(1) if m else None
+        if bad_param == 'comment' and 'comment' in kwargs:
+            healed_kwargs = {k: v for k, v in kwargs.items() if k != 'comment'}
+            getattr(api.get_resource(path), method)(**healed_kwargs)
+            return healed_kwargs
+        if bad_param and bad_param in _FUNCTIONAL_FIELDS:
+            raise RuntimeError(
+                f"{path}.{method}: RouterOS rejected functional field '{bad_param}' - {e}"
+            ) from e
+        raise
+
+
+# Fields RouterOS reports back reordered/reformatted rather than verbatim,
+# so a naive string compare would flag them as perpetually drifted even
+# when nothing actually changed. login-by is a comma-separated set (RouterOS
+# stores/returns it in its own canonical order, e.g. "mac,http-chap" no
+# matter what order it was sent in) - compared as a set, not a string.
+_UNORDERED_SET_FIELDS = {'login-by'}
+
+# ssid gets the same "don't re-fire cosmetically" care, but NOT via the
+# comma-split/unordered-set treatment above: ssid is a single opaque value,
+# not a set, and an SSID is technically free to contain a literal comma
+# ("Cafe,Free-WiFi" vs "Free-WiFi,Cafe" would then compare equal though
+# they're different SSIDs). The only cosmetic variance a scalar RouterOS
+# string field actually exhibits is incidental whitespace, so it's
+# compared trimmed instead - same intent (skip spurious SETs) without the
+# false-equality risk.
+_TRIMMED_FIELDS = {'ssid'}
+
+
+def _values_equal(key, existing_val, desired_val):
+    if key in _UNORDERED_SET_FIELDS:
+        existing_set = {x.strip() for x in str(existing_val).split(',') if x.strip()}
+        desired_set = {x.strip() for x in str(desired_val).split(',') if x.strip()}
+        return existing_set == desired_set
+    if key in _TRIMMED_FIELDS:
+        return str(existing_val).strip() == str(desired_val).strip()
+    return str(existing_val) == str(desired_val)
+
+
+def _plan_reconcile(changes, unchanged, failed, dry_run, api, path, existing_row, desired_attrs, label):
+    """
+    Shared get-by-name/comment -> set-else-add primitive, dry-run aware and
+    schema-aware for `comment` (see _write()).
+
+    existing_row: the matched row dict, or None if nothing matched.
+    desired_attrs: dict of RouterOS field names (dashed, as the API expects)
+    to desired string values. Only keys present here are ever compared/set -
+    fields not listed are left untouched on an existing row.
+
+    dry_run=True: appends the "CREATE ..."/"SET ..." description to `changes`
+    as a preview (pre-emptively drops comment in the preview too, if this
+    path is already known unsupported) - no write is ever issued.
+    dry_run=False: only appends to `changes` AFTER the .add()/.set() call
+    returns successfully, reflecting exactly what was sent (comment may have
+    been silently dropped - noted in the description). A failure on a
+    functional field is appended to `failed` and re-raised so the caller
+    stops rather than pressing on to later steps.
+    Appends to `unchanged` when the row already matches (no write needed).
+    """
+    if existing_row is None:
+        planned = dict(desired_attrs)
+        if dry_run:
+            if path in _NO_COMMENT_SUPPORT_PATHS and 'comment' in planned:
+                del planned['comment']
+            desc = f"CREATE {path} " + " ".join(f"{k}={v}" for k, v in planned.items())
+            changes.append(desc)
+            return
+        try:
+            sent = _write(api, path, 'add', planned)
+        except Exception as e:
+            desc = f"CREATE {path} " + " ".join(f"{k}={v}" for k, v in planned.items())
+            failed.append(f"{desc} -> ERROR: {e}")
+            raise
+        note = " (comment dropped - unsupported on this object)" if 'comment' in planned and 'comment' not in sent else ""
+        changes.append(f"CREATE {path} " + " ".join(f"{k}={v}" for k, v in sent.items()) + note)
+        return
+
+    drifted = {
+        k: v for k, v in desired_attrs.items()
+        if not _values_equal(k, existing_row.get(k, ''), v)
+    }
+    if not drifted:
+        unchanged.append(f"{path} ({label}) already correct")
+        return
+
+    if dry_run:
+        planned = dict(drifted)
+        if path in _NO_COMMENT_SUPPORT_PATHS and 'comment' in planned:
+            del planned['comment']
+        if not planned:
+            unchanged.append(f"{path} ({label}) already correct (comment unsupported, ignored)")
+            return
+        desc = f"SET {path} id={existing_row.get('id')} " + " ".join(f"{k}={v}" for k, v in planned.items())
+        changes.append(desc)
+        return
+
+    try:
+        sent = _write(api, path, 'set', {'id': existing_row['id'], **drifted})
+    except Exception as e:
+        desc = f"SET {path} id={existing_row.get('id')} " + " ".join(f"{k}={v}" for k, v in drifted.items())
+        failed.append(f"{desc} -> ERROR: {e}")
+        raise
+    sent_no_id = {k: v for k, v in sent.items() if k != 'id'}
+    if not sent_no_id:
+        unchanged.append(f"{path} ({label}) already correct (comment unsupported, ignored)")
+        return
+    note = " (comment dropped - unsupported on this object)" if 'comment' in drifted and 'comment' not in sent_no_id else ""
+    changes.append(
+        f"SET {path} id={existing_row.get('id')} " + " ".join(f"{k}={v}" for k, v in sent_no_id.items()) + note
+    )
+
+
+def prepare_hotspot_service(router, dry_run: bool = False) -> Tuple[bool, str, Dict]:
+    """
+    Idempotent, router-scoped routine that brings a factory-fresh MikroTik to
+    a working, stock-login hotspot: adopts/creates the bridge subnet, an IP
+    pool and DHCP server bound to it, the missing NAT masquerade out ether1
+    (the actual internet-path fix), a hotspot server + named server-profile
+    (surfzone-hotspot), a baseline per-user profile (default), and the two
+    firewall input-accepts hotspot needs. No walled-garden/redirect here -
+    that's stage 0b.
+
+    Every object this routine owns is tagged comment="surfzone-hotspot" and
+    matched by name/comment (or, for NAT/firewall, by functional equivalence
+    too) before any add, so re-running it is a no-op once state matches.
+    Deliberately does not call _configure_hotspot_firewall() (duplicates on
+    rerun) or anything from configure_pppoe() (test-user secret, wrong app).
+
+    Safety: refuses to run at all if ether1 is a bridge port (would mean the
+    WAN path is bridged into the LAN) - never touches ether1 or wg-vultr
+    other than naming ether1 as the NAT out-interface.
+
+    dry_run=True: connects and reads only (`.get()` calls exclusively - no
+    write command is ever constructed), returns the exact ordered list of
+    changes that would be made without sending any of them.
+    dry_run=False: same plan, each CREATE/SET is actually applied.
+
+    Returns (success, message, details) where details['changes'] is the
+    ordered "CREATE/SET <path> <key=value ...>" list and
+    details['unchanged'] lists what was already correct.
+
+    Connection note: this deliberately does NOT go through
+    MikroTikConnector.connect() / ConnectionPoolManager.get_pool() - that
+    path currently passes use_ssl/ssl_verify/timeout/max_connections kwargs
+    that the installed routeros_api version's RouterOsApiPool.__init__()
+    rejects (a pre-existing bug affecting configure_hotspot(),
+    configure_pppoe() and HotspotConfiguration.apply_configuration() too,
+    not introduced here). Uses the same plain RouterOsApiPool(...,
+    plaintext_login=True) construction already proven to work elsewhere in
+    this codebase (network_management/services/hotspot_provisioning.py,
+    RouterStatsView).
+    """
+    changes: List[str] = []
+    unchanged: List[str] = []
+    failed: List[str] = []
+    empty_details = {'changes': changes, 'unchanged': unchanged, 'failed': failed}
+    TAG = HOTSPOT_OWNED_TAG
+
+    api_pool = RouterOsApiPool(
+        router.ip,
+        username=router.username,
+        password=router.password,
+        port=router.port,
+        plaintext_login=True,
+    )
+    try:
+        api = api_pool.get_api()
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}", empty_details
+
+    try:
+        # --- Safety gate: never touch a router where ether1 (WAN) is bridged ---
+        bridge_ports = api.get_resource('/interface/bridge/port').get() or []
+        if any(p.get('interface') == 'ether1' for p in bridge_ports):
+            msg = (
+                "ether1 is a bridge port on this router - refusing to configure "
+                "hotspot (this would touch the WAN path)"
+            )
+            logger.error(f"prepare_hotspot_service aborted for {router.ip}: {msg}")
+            return False, msg, empty_details
+
+        # --- Pull ssid/bandwidth/session-timeout/max-users: per-router
+        # HotspotConfiguration row where present, else env defaults ---
+        defaults = MikroTikConfig.get_hotspot_defaults()
+        ssid = defaults['default_ssid']
+        bandwidth_limit = defaults['bandwidth_limit']
+        session_timeout = defaults['session_timeout']
+        max_users = defaults['max_users']
+        configured_dns_servers = None
+
+        if DJANGO_AVAILABLE and getattr(router, 'id', None):
+            try:
+                from network_management.models.router_management_model import HotspotConfiguration
+                config = HotspotConfiguration.objects.filter(router_id=router.id).first()
+                if config:
+                    ssid = config.ssid or ssid
+                    bandwidth_limit = config.rate_limit or bandwidth_limit
+                    session_timeout = config.session_timeout or session_timeout
+                    max_users = config.max_users or max_users
+                    configured_dns_servers = config.dns_servers or None
+            except Exception as e:
+                logger.warning(f"Could not load HotspotConfiguration for router {router.id}: {e}")
+
+        # --- Step 1: hotspot interface + subnet - bridge only, adopt existing ---
+        addresses = api.get_resource('/ip/address').get() or []
+        bridge_addr = next((a for a in addresses if a.get('interface') == 'bridge'), None)
+
+        if bridge_addr and bridge_addr.get('address'):
+            bridge_cidr = bridge_addr['address']
+            unchanged.append(f"/ip/address bridge already has {bridge_cidr}")
+        else:
+            bridge_cidr = "192.168.88.1/24"
+            changes.append(f"CREATE /ip/address address={bridge_cidr} interface=bridge comment={TAG}")
+            if not dry_run:
+                api.get_resource('/ip/address').add(address=bridge_cidr, interface='bridge', comment=TAG)
+
+        iface = ipaddress.ip_interface(bridge_cidr)
+        network = iface.network
+        gateway_ip = iface.ip
+
+        # --- Step 2: IP pool in that subnet - derive range, reconcile default-dhcp
+        # rather than creating a second, mismatched pool ---
+        hosts = [h for h in network.hosts() if h != gateway_ip]
+        derived_range = f"{hosts[0]}-{hosts[-1]}" if hosts else None
+
+        def _range_in_network(ranges_str):
+            try:
+                first, last = ranges_str.split('-')
+                return (
+                    ipaddress.ip_address(first.strip()) in network
+                    and ipaddress.ip_address(last.strip()) in network
+                )
+            except Exception:
+                return False
+
+        pools = api.get_resource('/ip/pool').get() or []
+        pool_row = next((p for p in pools if p.get('name') == 'default-dhcp'), None)
+        if pool_row is None:
+            pool_row = next((p for p in pools if p.get('comment') == TAG), None)
+
+        if pool_row is not None and _range_in_network(pool_row.get('ranges', '')):
+            # Already in the right subnet - only claim ownership via comment,
+            # never rewrite a range that's already sane.
+            pool_name = pool_row['name']
+            _plan_reconcile(
+                changes, unchanged, failed, dry_run, api, '/ip/pool', pool_row,
+                {'comment': TAG}, pool_name,
+            )
+        elif pool_row is not None:
+            pool_name = pool_row['name']
+            _plan_reconcile(
+                changes, unchanged, failed, dry_run, api, '/ip/pool', pool_row,
+                {'ranges': derived_range, 'comment': TAG}, pool_name,
+            )
+        else:
+            pool_name = 'surfzone-hotspot-pool'
+            _plan_reconcile(
+                changes, unchanged, failed, dry_run, api, '/ip/pool', None,
+                {'name': pool_name, 'ranges': derived_range, 'comment': TAG}, pool_name,
+            )
+
+        # --- Step 3: DHCP server on bridge, bound to that pool - reuse existing ---
+        dhcp_servers = api.get_resource('/ip/dhcp-server').get() or []
+        dhcp_row = next((d for d in dhcp_servers if d.get('interface') == 'bridge'), None)
+
+        if dhcp_row is not None:
+            dhcp_name = dhcp_row.get('name')
+            _plan_reconcile(
+                changes, unchanged, failed, dry_run, api, '/ip/dhcp-server', dhcp_row,
+                {'address-pool': pool_name, 'comment': TAG}, dhcp_name,
+            )
+        else:
+            dhcp_name = 'surfzone-hotspot-dhcp'
+            _plan_reconcile(
+                changes, unchanged, failed, dry_run, api, '/ip/dhcp-server', None,
+                {
+                    'name': dhcp_name, 'interface': 'bridge', 'address-pool': pool_name,
+                    'lease-time': '1d', 'disabled': 'no', 'comment': TAG,
+                },
+                dhcp_name,
+            )
+
+        # DHCP network entry (gateway/dns) for the subnet - without it the
+        # server hands out an address but no gateway, so it isn't actually a
+        # working hotspot yet. dns-server is adopt-if-set, same as the pool
+        # range: never overwrite a value that's already there, only fill it
+        # in when genuinely absent - and fall back to the hotspot gateway
+        # itself (not a public resolver) so a router with nothing configured
+        # still resolves locally.
+        dhcp_networks = api.get_resource('/ip/dhcp-server/network').get() or []
+
+        def _same_subnet(row):
+            try:
+                return ipaddress.ip_network(row.get('address', ''), strict=False) == network
+            except Exception:
+                return False
+
+        net_row = next((n for n in dhcp_networks if _same_subnet(n)), None)
+        net_desired = {'address': str(network), 'gateway': str(gateway_ip), 'comment': TAG}
+        if not (net_row or {}).get('dns-server'):
+            net_desired['dns-server'] = configured_dns_servers or str(gateway_ip)
+
+        _plan_reconcile(
+            changes, unchanged, failed, dry_run, api, '/ip/dhcp-server/network', net_row,
+            net_desired, str(network),
+        )
+
+        # --- Step 4: NAT masquerade for the hotspot subnet out ether1. Only
+        # create the explicit tagged rule if nothing already gives this
+        # subnet an adequate masquerade path: an enabled srcnat/masquerade
+        # rule whose src-address covers the subnet (or has none, i.e.
+        # applies to everything), reachable via ether1 either directly
+        # (out-interface=ether1) or through an interface list ether1 is a
+        # member of (out-interface-list=<list>), or with neither
+        # out-interface nor out-interface-list set (applies to all
+        # interfaces). Any ambiguity (unparseable src-address, etc.) is
+        # treated as NOT covered, so we create rather than risk a false
+        # "already fine". ---
+        list_members = api.get_resource('/interface/list/member').get() or []
+        ether1_lists = {
+            m.get('list') for m in list_members
+            if m.get('interface') == 'ether1' and m.get('disabled', 'false') != 'true'
+        }
+
+        def _rule_covers_subnet(rule):
+            if rule.get('chain') != 'srcnat' or rule.get('action') != 'masquerade':
+                return False
+            if rule.get('disabled') == 'true':
+                return False
+            out_iface = rule.get('out-interface', '')
+            out_iface_list = rule.get('out-interface-list', '')
+            if out_iface and out_iface != 'ether1':
+                return False
+            if out_iface_list and out_iface_list not in ether1_lists:
+                return False
+            src = rule.get('src-address', '')
+            if not src:
+                return True
+            try:
+                src_net = ipaddress.ip_network(src, strict=False)
+                return network == src_net or network.subnet_of(src_net)
+            except Exception:
+                return False
+
+        nat_rules = api.get_resource('/ip/firewall/nat').get() or []
+        covering_rule = next((r for r in nat_rules if _rule_covers_subnet(r)), None)
+
+        if covering_rule is not None:
+            unchanged.append(
+                f"/ip/firewall/nat masquerade for {network} already covered by existing rule "
+                f"id={covering_rule.get('id')} comment={covering_rule.get('comment', '')!r}"
+            )
+        else:
+            nat_row = next((r for r in nat_rules if r.get('comment') == TAG), None)
+            _plan_reconcile(
+                changes, unchanged, failed, dry_run, api, '/ip/firewall/nat', nat_row,
+                {
+                    'chain': 'srcnat', 'action': 'masquerade', 'src-address': str(network),
+                    'out-interface': 'ether1', 'comment': TAG,
+                },
+                f"masquerade {network} -> ether1",
+            )
+
+        # --- Step 5/6: hotspot server on bridge + named server-profile ---
+        hotspot_profiles = api.get_resource('/ip/hotspot/profile').get() or []
+        profile_row = next((p for p in hotspot_profiles if p.get('name') == 'surfzone-hotspot'), None)
+        _plan_reconcile(
+            changes, unchanged, failed, dry_run, api, '/ip/hotspot/profile', profile_row,
+            {
+                # rate-limit/session-timeout/comment are NOT valid fields on
+                # the server-profile object on this RouterOS version -
+                # confirmed by two real API rejections. rate-limit and
+                # session-timeout live on /ip/hotspot/user/profile instead
+                # (step 7, below). No comment support here at all, so this
+                # object is owned/matched by name alone.
+                'name': 'surfzone-hotspot', 'login-by': 'http-chap,mac',
+            },
+            'surfzone-hotspot',
+        )
+
+        hotspot_servers = api.get_resource('/ip/hotspot').get() or []
+        server_row = next(
+            (h for h in hotspot_servers if h.get('interface') == 'bridge' or h.get('comment') == TAG),
+            None,
+        )
+        _plan_reconcile(
+            changes, unchanged, failed, dry_run, api, '/ip/hotspot', server_row,
+            {
+                'name': ssid, 'interface': 'bridge', 'address-pool': pool_name,
+                'profile': 'surfzone-hotspot', 'disabled': 'no', 'comment': TAG,
+            },
+            ssid,
+        )
+
+        # --- Step 7: per-user profile baseline "default" - placeholder until
+        # Stage A adds plan-named profiles. Carries session-timeout too -
+        # that field lives here, not on the server-profile (step 5/6). ---
+        user_profiles = api.get_resource('/ip/hotspot/user/profile').get() or []
+        user_profile_row = next((p for p in user_profiles if p.get('name') == 'default'), None)
+        _plan_reconcile(
+            changes, unchanged, failed, dry_run, api, '/ip/hotspot/user/profile', user_profile_row,
+            {
+                'name': 'default', 'rate-limit': bandwidth_limit,
+                'shared-users': str(max_users), 'session-timeout': f'{session_timeout}m',
+                'comment': TAG,
+            },
+            'default',
+        )
+
+        # --- Step 8: firewall input-accepts hotspot needs - matched by
+        # (chain, protocol, dst-port, action) so a pre-existing, differently
+        # -commented equivalent rule is recognized too, not just our own tag ---
+        firewall_rules = api.get_resource('/ip/firewall/filter').get() or []
+        needed_rules = [
+            {'chain': 'input', 'protocol': 'udp', 'dst-port': '53', 'action': 'accept', 'comment': TAG},
+            {'chain': 'input', 'protocol': 'tcp', 'dst-port': '80,443', 'action': 'accept', 'comment': TAG},
+        ]
+        for rule in needed_rules:
+            match_keys = ('chain', 'protocol', 'dst-port', 'action')
+            existing = next(
+                (
+                    r for r in firewall_rules
+                    if all(r.get(k) == rule[k] for k in match_keys)
+                ),
+                None,
+            )
+            label = f"{rule['protocol']}/{rule['dst-port']} accept"
+            _plan_reconcile(
+                changes, unchanged, failed, dry_run, api, '/ip/firewall/filter', existing, rule, label,
+            )
+
+        # --- Step 9: open security-profile "surfzone-open" (mode=none - no
+        # WPA/authentication required to associate). Reconciled by name
+        # only, like the other named profiles above. Deliberately does not
+        # touch whatever security-profile already exists (e.g. "default"
+        # WPA2) - that stays in place, untouched, as a fallback. ---
+        security_profiles = api.get_resource('/interface/wireless/security-profiles').get() or []
+        open_profile_row = next((p for p in security_profiles if p.get('name') == 'surfzone-open'), None)
+        _plan_reconcile(
+            changes, unchanged, failed, dry_run, api, '/interface/wireless/security-profiles', open_profile_row,
+            {'name': 'surfzone-open', 'mode': 'none'},
+            'surfzone-open',
+        )
+
+        # --- Step 10: wireless interface - security-profile + SSID -
+        # selected by NAME only, never by index or list position. Acts only
+        # on the one configured interface (WIRELESS_IFACE_NAME); never
+        # creates a wireless interface (that's hardware-backed, not
+        # something to fabricate via config), and any other wireless
+        # interface present is left untouched and reported explicitly
+        # rather than silently ignored. ---
+        WIRELESS_IFACE_NAME = 'wlan1'
+        wireless_ifaces = api.get_resource('/interface/wireless').get() or []
+        target_wireless = next(
+            (w for w in wireless_ifaces if w.get('name') == WIRELESS_IFACE_NAME), None
+        )
+
+        if target_wireless is not None:
+            _plan_reconcile(
+                changes, unchanged, failed, dry_run, api, '/interface/wireless', target_wireless,
+                {'security-profile': 'surfzone-open', 'ssid': ssid}, WIRELESS_IFACE_NAME,
+            )
+        else:
+            unchanged.append(
+                f"/interface/wireless: no interface named {WIRELESS_IFACE_NAME!r} found - skipped, nothing touched"
+            )
+
+        for w in wireless_ifaces:
+            if w.get('name') != WIRELESS_IFACE_NAME:
+                unchanged.append(
+                    f"/interface/wireless {w.get('name')}: not the configured interface - left untouched"
+                )
+
+        # --- Step 11: walled-garden dst-host allows for the buy page and
+        # its only external dependency (Google Fonts). Matched per-host on
+        # dst-host so re-runs never duplicate. Comment support on this menu
+        # is unconfirmed - _write()'s self-heal drops it automatically if
+        # RouterOS rejects it, same as the other /ip/hotspot/* objects.
+        # Deliberately excludes OS captive-probe domains (apple/gstatic
+        # connectivity-check/msftconnecttest) - those must stay interceptable
+        # for the phone's auto-login-popup to fire at all. ---
+        WALLED_GARDEN_HOSTS = [
+            'surfzone.stormclouds.co.ke',
+            'fonts.googleapis.com',
+            'fonts.gstatic.com',
+        ]
+        walled_garden_rows = api.get_resource('/ip/hotspot/walled-garden').get() or []
+        for host in WALLED_GARDEN_HOSTS:
+            existing = next((w for w in walled_garden_rows if w.get('dst-host') == host), None)
+            _plan_reconcile(
+                changes, unchanged, failed, dry_run, api, '/ip/hotspot/walled-garden', existing,
+                {'dst-host': host, 'action': 'allow', 'comment': TAG},
+                host,
+            )
+
+        overall_message = (
+            f"{len(changes)} change(s) {'would be' if dry_run else 'were'} applied, "
+            f"{len(unchanged)} item(s) already correct"
+        )
+        return True, overall_message, {'changes': changes, 'unchanged': unchanged, 'failed': failed}
+
+    except Exception as e:
+        logger.error(f"prepare_hotspot_service failed for {router.ip}: {e}")
+        return False, f"prepare_hotspot_service failed: {e}", {'changes': changes, 'unchanged': unchanged, 'failed': failed}
+    finally:
+        try:
+            api_pool.disconnect()
+        except Exception:
+            pass
+
+
+# Only these characters are known-safe on RouterOS name fields (confirmed
+# unmodified via a live probe against router 19: a raw space+mixed-case
+# name round-tripped byte-for-byte). Everything else - commas, semicolons,
+# quotes, control chars, none of which have been probed - is replaced
+# rather than trusted.
+_PLAN_NAME_UNSAFE_CHARS_RE = re.compile(r'[^A-Za-z0-9 _-]')
+_WHITESPACE_RUN_RE = re.compile(r'\s+')
+_PLAN_PROFILE_NAME_MAX_LEN = 60
+
+
+def plan_to_profile_name(plan) -> str:
+    """
+    The ONE deterministic InternetPlan.name -> RouterOS profile-name
+    mapping. push_plan_profile() (below) and
+    hotspot_provisioning.provision_hotspot_user()'s `profile=` kwarg
+    MUST both call this and only this - if either one derives the name
+    any other way, a pushed profile and an activation's requested
+    profile silently stop matching and hotspot users fall back to
+    RouterOS's undocumented "profile not found" behavior instead of the
+    plan's actual rate limits.
+
+    Rule: keep [A-Za-z0-9 _-], replace anything else with '-', collapse
+    whitespace runs to a single space, trim, cap at
+    _PLAN_PROFILE_NAME_MAX_LEN chars (trimmed again after the cut, in
+    case truncation lands mid-space/dash).
+    """
+    name = getattr(plan, 'name', '') or ''
+    name = _PLAN_NAME_UNSAFE_CHARS_RE.sub('-', name)
+    name = _WHITESPACE_RUN_RE.sub(' ', name).strip()
+    name = name[:_PLAN_PROFILE_NAME_MAX_LEN].strip()
+    return name or 'surfzone-plan'
+
+
+# access_methods stores speed units as 'Mbps'/'Kbps'/'Gbps' (human-facing
+# strings from the plan-editor UI); RouterOS rate-limit tokens want a bare
+# numeric suffix instead ('M'/'k'/'G'). Concatenating the raw unit string
+# ("10Mbps") would send RouterOS a value it doesn't recognize. Unrecognized
+# or missing units fall back to 'M' - the same default access_methods
+# itself uses for speed fields.
+_SPEED_UNIT_TO_ROUTEROS_SUFFIX = {'mbps': 'M', 'kbps': 'k', 'gbps': 'G'}
+
+# Product policy: a phone idle in someone's pocket should not silently keep
+# accruing connected time. Fixed, not derived from any plan field.
+HOTSPOT_PROFILE_IDLE_TIMEOUT = '5m'
+
+
+def _routeros_rate_token(value, unit) -> str:
+    suffix = _SPEED_UNIT_TO_ROUTEROS_SUFFIX.get(str(unit).strip().lower(), 'M')
+    return f"{value}{suffix}"
+
+
+_DURATION_UNIT_SECONDS = {
+    's': 1, 'sec': 1, 'secs': 1, 'second': 1, 'seconds': 1,
+    'm': 60, 'min': 60, 'mins': 60, 'minute': 60, 'minutes': 60,
+    'h': 3600, 'hr': 3600, 'hrs': 3600, 'hour': 3600, 'hours': 3600,
+    'd': 86400, 'day': 86400, 'days': 86400,
+}
+
+
+def _plan_hotspot_raw(plan) -> Dict:
+    """
+    Raw access_methods['hotspot'] dict, or {}. Deliberately bypasses
+    Plan.get_technical_config(), which silently substitutes a default
+    value/unit pair for any missing sub-field (e.g. {'value': '10', 'unit':
+    'gb'} for a missing data_limit) - that default masks a genuinely-
+    unconfigured plan as a real limit. Callers here need to tell "missing"
+    apart from "explicitly set" so they can refuse to guess a number.
+    """
+    if plan is None:
+        return {}
+    return (getattr(plan, 'access_methods', None) or {}).get('hotspot') or {}
+
+
+def plan_uptime_limit_seconds(plan) -> Optional[int]:
+    """
+    Connected-time allowance in seconds, from access_methods.hotspot.
+    usage_limit (value/unit pair, same {'value', 'unit'} shape and
+    'Unlimited' convention as data_limit). This is the field the rest of
+    the app treats as a duration allowance - formatted via
+    format_duration_display alongside validity_period, labelled "Usage
+    Limit" in the plan editor, always expressed in Hours or 'Unlimited' in
+    the admin UI's own presets (usageLimitPresets in
+    ServiceManagement/Shared/constant.js). NOT validity_period, which is
+    the calendar window the subscription itself expires on
+    (service_operations.services.payment_activation._plan_duration_hours) -
+    usage_limit is how much *connected* time the account gets to spend
+    within that window.
+
+    Shared by hotspot_provisioning.provision_hotspot_user() (limit-uptime
+    on the user) and push_plan_profile() below (session-timeout on the
+    profile) - both need the exact same allowance number.
+
+    Returns None for "Unlimited" (no cap - caller must omit limit-uptime
+    entirely, never write 0 or a large number) and also for a missing or
+    unreadable value - same "don't guess" policy as the data_limit fix in
+    hotspot_provisioning._plan_data_limit_bytes, logged either way so a
+    misconfigured plan is visible rather than silently capped or uncapped.
+    """
+    usage_limit = _plan_hotspot_raw(plan).get('usage_limit')
+    if not isinstance(usage_limit, dict) or not usage_limit.get('value') or not usage_limit.get('unit'):
+        logger.warning(
+            "Plan %s has no usable usage_limit under access_methods.hotspot; "
+            "provisioning with no connected-time cap.",
+            getattr(plan, 'id', 'unknown'),
+        )
+        return None
+
+    value = usage_limit['value']
+    unit = usage_limit['unit']
+
+    if str(value).strip().lower() == 'unlimited' or str(unit).strip().lower() == 'unlimited':
+        return None
+
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Unparseable usage_limit value %r on plan %s; provisioning with no connected-time cap.",
+            value, getattr(plan, 'id', 'unknown'),
+        )
+        return None
+
+    multiplier = _DURATION_UNIT_SECONDS.get(str(unit).strip().lower())
+    if multiplier is None:
+        logger.warning(
+            "Unrecognized usage_limit unit %r on plan %s; provisioning with no connected-time cap.",
+            unit, getattr(plan, 'id', 'unknown'),
+        )
+        return None
+
+    return int(numeric_value * multiplier)
+
+
+def push_plan_profile(plan, router, dry_run: bool = False) -> Tuple[bool, str, Dict]:
+    """
+    Idempotent, single-router push of one InternetPlan's hotspot rate
+    limits onto RouterOS as a /ip/hotspot/user/profile. Reuses the same
+    _plan_reconcile()/_write() machinery as prepare_hotspot_service()
+    (schema-aware comment handling, functional-field-rejection stops the
+    caller rather than silently dropping, dry-run preview support),
+    matched by name via plan_to_profile_name(plan) - see that function's
+    docstring for why this must be the only place that name is derived.
+
+    Deliberately does NOT set a data cap here: limit_bytes_total is a
+    per-user attribute applied at activation time
+    (hotspot_provisioning.provision_hotspot_user), not a per-profile
+    RouterOS field, so data_limit/data_unit from get_technical_config()
+    are not used by this function.
+
+    Field mapping, from plan.get_technical_config('hotspot'):
+      rate-limit      = "{upload}{unit-suffix}/{download}{unit-suffix}"
+                         (RouterOS convention: rx-rate/tx-rate, i.e. what
+                         the router receives from the client / sends to
+                         the client = upload/download)
+      shared-users    = str(max_devices), falling back to 1 if unset/blank
+      session-timeout = plan_uptime_limit_seconds(plan) (the plan's full
+                         connected-time allowance, access_methods.hotspot.
+                         usage_limit) with an 's' suffix - bounds a single
+                         login to at most the plan's entire allowance.
+                         This is a coarse, profile-wide bound only:
+                         limit-uptime on the individual /ip/hotspot/user
+                         entry (set in
+                         hotspot_provisioning.provision_hotspot_user, which
+                         also carries over unused time across repeat
+                         purchases) is the real cumulative gate: RouterOS
+                         disconnects once accumulated uptime reaches it,
+                         same as this, whichever comes first. Falls back
+                         to the legacy access_methods.hotspot.session_timeout
+                         raw field (or 86400s) when usage_limit is
+                         Unlimited/unreadable, since there's no allowance
+                         to bound a single session against in that case.
+      idle-timeout    = fixed 5 minutes (product policy, not derived from
+                         any plan field - a phone idle in someone's pocket
+                         should not keep counting as connected time).
+
+    dry_run=True: connects and reads only, returns the planned
+    CREATE/SET without writing. dry_run=False: applies it.
+    """
+    changes: List[str] = []
+    unchanged: List[str] = []
+    failed: List[str] = []
+    empty_details = {'changes': changes, 'unchanged': unchanged, 'failed': failed}
+
+    api_pool = RouterOsApiPool(
+        router.ip,
+        username=router.username,
+        password=router.password,
+        port=router.port,
+        plaintext_login=True,
+    )
+    try:
+        api = api_pool.get_api()
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}", empty_details
+
+    try:
+        profile_name = plan_to_profile_name(plan)
+        config = plan.get_technical_config('hotspot')
+
+        rate_limit = "{}/{}".format(
+            _routeros_rate_token(config['upload_speed'], config.get('upload_unit', 'Mbps')),
+            _routeros_rate_token(config['download_speed'], config.get('download_unit', 'Mbps')),
+        )
+        shared_users = str(config.get('max_devices') or 1)
+
+        uptime_allowance_seconds = plan_uptime_limit_seconds(plan)
+        if uptime_allowance_seconds is not None:
+            session_timeout = f"{uptime_allowance_seconds}s"
+        else:
+            session_timeout = f"{config.get('session_timeout') or 86400}s"
+
+        user_profiles = api.get_resource('/ip/hotspot/user/profile').get() or []
+        existing = next((p for p in user_profiles if p.get('name') == profile_name), None)
+        _plan_reconcile(
+            changes, unchanged, failed, dry_run, api, '/ip/hotspot/user/profile', existing,
+            {
+                'name': profile_name, 'rate-limit': rate_limit,
+                'shared-users': shared_users, 'session-timeout': session_timeout,
+                'idle-timeout': HOTSPOT_PROFILE_IDLE_TIMEOUT,
+            },
+            profile_name,
+        )
+
+        overall_message = (
+            f"{len(changes)} change(s) {'would be' if dry_run else 'were'} applied, "
+            f"{len(unchanged)} item(s) already correct"
+        )
+        return True, overall_message, {'changes': changes, 'unchanged': unchanged, 'failed': failed}
+
+    except Exception as e:
+        logger.error(f"push_plan_profile failed for plan {getattr(plan, 'id', '?')} on {router.ip}: {e}")
+        return False, f"push_plan_profile failed: {e}", {'changes': changes, 'unchanged': unchanged, 'failed': failed}
+    finally:
+        try:
+            api_pool.disconnect()
+        except Exception:
+            pass
+
+
+def push_pppoe_profile(plan, router, dry_run: bool = False) -> Tuple[bool, str, Dict]:
+    """
+    PPPoE counterpart to push_plan_profile() above - idempotent, single-
+    router push of one InternetPlan's PPPoE rate limits onto RouterOS as a
+    /ppp/profile, so provision_pppoe_user()'s `profile=` (also
+    plan_to_profile_name(plan) - same rule as the hotspot side) always
+    names something that actually exists. Same _plan_reconcile()/_write()
+    machinery, same matched-by-name convention, same dry-run contract.
+
+    No shared-users field here - that's a /ip/hotspot/user/profile concept
+    (concurrent logins under one hotspot username); /ppp/profile has no
+    equivalent, each PPPoE secret is inherently one connection.
+
+    Field mapping, from plan.get_technical_config('pppoe'):
+      rate-limit      = "{upload}{unit-suffix}/{download}{unit-suffix}"
+                         (same rx-rate/tx-rate convention as the hotspot side)
+      session-timeout = f"{session_timeout}s" (seconds, same as hotspot side)
+    """
+    changes: List[str] = []
+    unchanged: List[str] = []
+    failed: List[str] = []
+    empty_details = {'changes': changes, 'unchanged': unchanged, 'failed': failed}
+
+    api_pool = RouterOsApiPool(
+        router.ip,
+        username=router.username,
+        password=router.password,
+        port=router.port,
+        plaintext_login=True,
+    )
+    try:
+        api = api_pool.get_api()
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}", empty_details
+
+    try:
+        profile_name = plan_to_profile_name(plan)
+        config = plan.get_technical_config('pppoe')
+
+        rate_limit = "{}/{}".format(
+            _routeros_rate_token(config['upload_speed'], config.get('upload_unit', 'Mbps')),
+            _routeros_rate_token(config['download_speed'], config.get('download_unit', 'Mbps')),
+        )
+        session_timeout = f"{config.get('session_timeout') or 86400}s"
+
+        ppp_profiles = api.get_resource('/ppp/profile').get() or []
+        existing = next((p for p in ppp_profiles if p.get('name') == profile_name), None)
+        _plan_reconcile(
+            changes, unchanged, failed, dry_run, api, '/ppp/profile', existing,
+            {
+                'name': profile_name, 'rate-limit': rate_limit,
+                'session-timeout': session_timeout,
+            },
+            profile_name,
+        )
+
+        overall_message = (
+            f"{len(changes)} change(s) {'would be' if dry_run else 'were'} applied, "
+            f"{len(unchanged)} item(s) already correct"
+        )
+        return True, overall_message, {'changes': changes, 'unchanged': unchanged, 'failed': failed}
+
+    except Exception as e:
+        logger.error(f"push_pppoe_profile failed for plan {getattr(plan, 'id', '?')} on {router.ip}: {e}")
+        return False, f"push_pppoe_profile failed: {e}", {'changes': changes, 'unchanged': unchanged, 'failed': failed}
+    finally:
+        try:
+            api_pool.disconnect()
+        except Exception:
+            pass
+
+
+def remove_plan_profile(plan, router, dry_run: bool = False) -> Tuple[bool, str, Dict]:
+    """
+    Idempotent removal of the /ip/hotspot/user/profile matching
+    plan_to_profile_name(plan) on `router` - the plan-delete counterpart
+    to push_plan_profile(). A no-op (not an error, appended to
+    'unchanged') if no such profile exists on this router; matched and
+    removed by exact name only, never touches any other profile. Uses
+    the same _write() primitive push_plan_profile()/_plan_reconcile()
+    use, just with method='remove'.
+
+    dry_run=True: read-only, reports what would be removed without
+    removing it.
+    """
+    changes: List[str] = []
+    unchanged: List[str] = []
+    failed: List[str] = []
+    empty_details = {'changes': changes, 'unchanged': unchanged, 'failed': failed}
+
+    api_pool = RouterOsApiPool(
+        router.ip,
+        username=router.username,
+        password=router.password,
+        port=router.port,
+        plaintext_login=True,
+    )
+    try:
+        api = api_pool.get_api()
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}", empty_details
+
+    try:
+        profile_name = plan_to_profile_name(plan)
+        path = '/ip/hotspot/user/profile'
+        rows = api.get_resource(path).get() or []
+        existing = next((p for p in rows if p.get('name') == profile_name), None)
+
+        if existing is None:
+            unchanged.append(f"{path} ({profile_name}): already absent, nothing to remove")
+        elif dry_run:
+            changes.append(f"REMOVE {path} id={existing.get('id')} name={profile_name}")
+        else:
+            try:
+                _write(api, path, 'remove', {'id': existing['id']})
+            except Exception as e:
+                failed.append(f"REMOVE {path} id={existing.get('id')} name={profile_name} -> ERROR: {e}")
+                raise
+            changes.append(f"REMOVE {path} id={existing.get('id')} name={profile_name}")
+
+        overall_message = (
+            f"{len(changes)} change(s) {'would be' if dry_run else 'were'} applied, "
+            f"{len(unchanged)} item(s) already correct"
+        )
+        return True, overall_message, {'changes': changes, 'unchanged': unchanged, 'failed': failed}
+
+    except Exception as e:
+        logger.error(f"remove_plan_profile failed for plan {getattr(plan, 'id', '?')} on {router.ip}: {e}")
+        return False, f"remove_plan_profile failed: {e}", {'changes': changes, 'unchanged': unchanged, 'failed': failed}
+    finally:
+        try:
+            api_pool.disconnect()
+        except Exception:
+            pass
 
 
 class MikroTikConnectionManager:
